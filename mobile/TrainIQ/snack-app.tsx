@@ -1,5 +1,5 @@
 // TrainIQ — Expo Snack compatible single-file version
-// Paste this into https://snack.expo.dev
+// Paste this into https://snack.expo.dev as App.tsx
 
 import React from 'react';
 import {
@@ -41,7 +41,7 @@ const C = {
 
 // ── Components ─────────────────────────────────────────
 
-function ReadinessRing({ score, max, size = 180 }) {
+function ReadinessRing({ score, max, size = 180 }: { score: number; max: number; size?: number }) {
   const sw = 12;
   const r = (size - sw) / 2;
   const circ = 2 * Math.PI * r;
@@ -69,7 +69,7 @@ function ReadinessRing({ score, max, size = 180 }) {
   );
 }
 
-function MetricCard({ label, value, unit, color }) {
+function MetricCard({ label, value, unit, color }: { label: string; value: string; unit?: string; color: string }) {
   return (
     <View style={s.metricCard}>
       <Text style={s.label}>{label}</Text>
@@ -188,7 +188,7 @@ function HomeScreen() {
   );
 }
 
-function PlaceholderScreen({ title, subtitle }) {
+function PlaceholderScreen({ title, subtitle }: { title: string; subtitle: string }) {
   const insets = useSafeAreaInsets();
   return (
     <View style={[s.screen, { padding: 20, paddingTop: insets.top + 16 }]}>
@@ -205,9 +205,11 @@ function ProfileScreen() { return <PlaceholderScreen title="Profile" subtitle="Y
 
 // ── Navigation ─────────────────────────────────────────
 
-function TabIcon({ name, focused }) {
+type TabName = 'Home' | 'Training' | 'Coach' | 'Recovery' | 'Profile';
+
+function TabIcon({ name, focused }: { name: TabName; focused: boolean }) {
   const color = focused ? C.accent : C.muted;
-  const paths = {
+  const paths: Record<TabName, React.ReactNode> = {
     Home: <Path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z" stroke={color} strokeWidth={2} strokeLinejoin="round" />,
     Training: <Path d="M6 4v16M18 4v16M2 8h4M18 8h4M2 16h4M18 16h4M6 12h12" stroke={color} strokeWidth={2} strokeLinecap="round" />,
     Coach: <><Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={2} /><Path d="M8 12l2.5 2.5L16 9" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" /></>,
@@ -233,7 +235,7 @@ export default function App() {
       <StatusBar style="light" />
       <Tab.Navigator screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarIcon: ({ focused }) => <TabIcon name={route.name} focused={focused} />,
+        tabBarIcon: ({ focused }: { focused: boolean }) => <TabIcon name={route.name as TabName} focused={focused} />,
         tabBarActiveTintColor: C.accent,
         tabBarInactiveTintColor: C.muted,
         tabBarStyle: { backgroundColor: C.surface, borderTopColor: C.border, borderTopWidth: 1, height: 88, paddingTop: 8, paddingBottom: 28 },
