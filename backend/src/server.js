@@ -17,4 +17,6 @@ app.use('/api/whoop', whoopRoutes);
 app.listen(config.port, () => {
   console.log(`Training Intelligence API running on port ${config.port}`);
   console.log(`WHOOP OAuth: GET http://localhost:${config.port}/api/whoop/auth`);
+  console.log(`Health check: GET http://localhost:${config.port}/health`);
+  console.log(`WHOOP Client ID: ${config.whoop.clientId ? '***configured***' : 'MISSING'}`);
 });

@@ -1,4 +1,5 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 
 const config = {
   port: process.env.PORT || 3000,
@@ -19,5 +20,12 @@ const config = {
     ],
   },
 };
+
+// Validate required credentials on startup
+if (!config.whoop.clientId || !config.whoop.clientSecret) {
+  console.error('ERROR: WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET must be set in backend/.env');
+  console.error('Copy .env.example to .env and fill in your WHOOP credentials.');
+  process.exit(1);
+}
 
 module.exports = config;

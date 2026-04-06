@@ -18,6 +18,14 @@ router.get('/auth', (_req, res) => {
 
 // GET /api/whoop/callback?code=...&state=... — OAuth callback
 router.get('/callback', async (req, res) => {
+  // WHOOP may redirect with an error instead of a code
+  if (req.query.error) {
+    return res.status(400).json({
+      error: req.query.error,
+      description: req.query.error_description || 'Authorization denied by WHOOP',
+    });
+  }
+
   const { code } = req.query;
   if (!code) {
     return res.status(400).json({ error: 'Missing authorization code' });
