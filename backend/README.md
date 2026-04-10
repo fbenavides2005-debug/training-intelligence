@@ -1,39 +1,82 @@
-# Backend
+# TrainIQ Backend
 
-Server logic, APIs, integrations, data normalization and recommendation pipeline.
+TypeScript + Express.js + MongoDB backend for the TrainIQ intelligent coaching platform.
 
 ## Setup
 
-1. Copy `.env.example` to `.env` and fill in your WHOOP credentials:
-   ```bash
-   cp .env.example .env
-   ```
+```bash
+cp .env.example .env   # fill in MongoDB URI, JWT secret, WHOOP credentials
+npm install
+npm run dev            # starts with tsx watch (hot reload)
+```
 
-2. Register your app at https://developer.whoop.com/ to get `WHOOP_CLIENT_ID` and `WHOOP_CLIENT_SECRET`.
+## Architecture
 
-3. Install dependencies and start the server:
-   ```bash
-   npm install
-   npm run dev
-   ```
+```
+src/
+  config.ts              Environment + WHOOP config
+  server.ts              Express app entry point
+  types/index.ts         Shared TypeScript types & enums
+  models/
+    User.ts              User profile, settings, connected sources
+    HealthData.ts        Apple Health, WHOOP, and Normalized snapshots
+    Training.ts          Training sessions + recovery records
+    Coach.ts             Readiness, recommendations, weekly plans
+  controllers/
+    auth.ts              Register + login with JWT
+    user.ts              Profile & settings management
+    health.ts            Apple Health + WHOOP sync + normalized data
+    coach.ts             Readiness score, AI recommendations, weekly plan
+  routes/
+    auth.ts, user.ts, health.ts, coach.ts
+  services/
+    normalizer.ts        Merges Apple Health + WHOOP into one snapshot
+    readiness.ts         Computes 0-100 readiness from health data
+  middleware/
+    auth.ts              JWT authentication middleware
+```
 
-## WHOOP Integration
+## API Endpoints
 
-### OAuth Flow
+### Auth (public)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/auth/register` | Create account |
+| POST | `/api/auth/login` | Login, get JWT |
 
-1. `GET /api/whoop/auth` — returns the WHOOP authorization URL
-2. User authorizes in browser and is redirected to `/api/whoop/callback`
-3. Tokens are stored and auto-refreshed
+### User (auth required)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/user/profile` | Get user profile |
+| PATCH | `/api/user/profile` | Update profile fields |
+| PATCH | `/api/user/settings` | Update settings |
 
-### API Endpoints
+### Health Data (auth required)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/health/apple` | Sync Apple Health data |
+| POST | `/api/health/whoop` | Sync WHOOP data |
+| GET | `/api/health/today` | Today's normalized snapshot |
+| GET | `/api/health/history?days=7` | Historical health data |
 
-| Endpoint | Description |
-|---|---|
-| `GET /api/whoop/profile` | User profile |
-| `GET /api/whoop/body` | Body measurements |
-| `GET /api/whoop/cycles` | Physiological cycles |
-| `GET /api/whoop/recovery` | Recovery scores (HRV, RHR, SpO2) |
-| `GET /api/whoop/sleep` | Sleep records |
-| `GET /api/whoop/workouts` | Workout records |
+### AI Coach (auth required)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/coach/readiness` | Today's readiness score (0-100) |
+| GET | `/api/coach/readiness/history?days=7` | Readiness history |
+| GET | `/api/coach/recommendations` | Today's AI recommendations |
+| PATCH | `/api/coach/recommendations/:id/dismiss` | Dismiss a recommendation |
+| GET | `/api/coach/plan` | Current weekly plan |
+| PATCH | `/api/coach/plan/day/:index/complete` | Mark plan day done |
 
-All data endpoints support `?limit=`, `?start=`, `?end=` (ISO 8601), and `?nextToken=` for pagination.
+## Data Models
+
+- **User** — profile, training mode (casual/professional/health), WHOOP tokens
+- **AppleHealthData** — workouts, HR, HRV, sleep stages, activity rings
+- **WhoopData** — recovery score, strain, sleep performance
+- **NormalizedHealth** — merged view from all sources
+- **TrainingSession** — sessions with RPE, duration, HR, calories
+- **RecoveryRecord** — subjective recovery (fatigue, soreness, mood)
+- **Readiness** — daily 0-100 score with breakdown (sleep/HRV/strain/recovery)
+- **Recommendation** — AI coaching suggestions with priority
+- **WeeklyPlan** — 7-day training plan with per-day focus

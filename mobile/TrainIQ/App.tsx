@@ -8,7 +8,8 @@ import {
   DMSans_500Medium,
   DMSans_700Bold,
 } from '@expo-google-fonts/dm-sans';
-import AppNavigator from './src/navigation/AppNavigator';
+import { AuthProvider } from './src/context/AuthContext';
+import RootNavigator from './src/navigation/RootNavigator';
 import { colors } from './src/theme/colors';
 
 export default function App() {
@@ -29,9 +30,11 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
-      <StatusBar style="light" />
-      <AppNavigator />
-    </NavigationContainer>
+    <AuthProvider>
+      <NavigationContainer>
+        <StatusBar style="light" />
+        <RootNavigator />
+      </NavigationContainer>
+    </AuthProvider>
   );
 }
