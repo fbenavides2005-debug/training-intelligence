@@ -16,6 +16,7 @@ interface AuthState {
     trainingMode: TrainingMode,
   ) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
   clearError: () => void;
 }
 
@@ -94,6 +95,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    try {
+      const { data } = await authService.api.get<User>('/user/profile');
+      setUser(data);
+    } catch {
+      // silently fail — user data stays stale
+    }
+  }, []);
+
   const clearError = useCallback(() => setError(null), []);
 
   return (
@@ -106,6 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         login,
         register,
         logout,
+        refreshUser,
         clearError,
       }}
     >
