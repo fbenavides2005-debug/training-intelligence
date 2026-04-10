@@ -7,7 +7,7 @@ const TOKEN_KEY = 'trainiq_jwt';
 // ── API Client ─────────────────────────────────────────
 
 const api = axios.create({
-  baseURL: 'http://localhost:3000/api',
+  baseURL: 'https://trainiq-production.up.railway.app/api',
   timeout: 15_000,
   headers: { 'Content-Type': 'application/json' },
 });
