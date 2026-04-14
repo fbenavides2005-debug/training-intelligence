@@ -17,7 +17,7 @@ export default function RootNavigator() {
     );
   }
 
-  return isAuthenticated ? <AppNavigator /> : <AuthNavigator />;
+  return <AppNavigator />;
 }
 
 const styles = StyleSheet.create({
