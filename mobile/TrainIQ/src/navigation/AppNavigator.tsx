@@ -1,8 +1,8 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { View, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
+import Svg, { Path, Circle } from 'react-native-svg';
 import { colors } from '../theme/colors';
 import HomeScreen from '../screens/HomeScreen';
 import TrainingScreen from '../screens/TrainingScreen';
@@ -133,13 +133,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderTopColor: colors.cardBorder,
     borderTopWidth: 1,
-    height: 88,
-    paddingTop: 8,
-    paddingBottom: 28,
+    height: 84,
+    paddingTop: 10,
+    paddingBottom: 24,
+    elevation: 0,
+    shadowOpacity: 0,
   },
   tabLabel: {
     fontFamily: 'DMSans_500Medium',
-    fontSize: 11,
+    fontSize: 10.5,
+    letterSpacing: 0.6,
     marginTop: 4,
   },
 });
