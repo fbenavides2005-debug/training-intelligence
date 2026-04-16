@@ -1,20 +1,44 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   Alert,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
-import { useAuth } from '../context/AuthContext';
-import * as apiService from '../services/apiService';
-import type { TrainingMode, NormalizedHealthResponse } from '../types';
+import type { TrainingMode } from '../types';
+
+// ── Mock Data ─────────────────────────────────────────────
+
+const PROFILE = {
+  firstName: 'Felipe',
+  lastName: 'Benavides',
+  email: 'felipe@trainiq.app',
+  sport: 'Running',
+};
+
+const STATS_30D = {
+  workouts: 18,
+  hours: 24.7,
+  streak: 6,
+};
+
+const CONNECTED = {
+  appleHealth: true,
+  whoop: false,
+};
+
+const SETTINGS_INFO = {
+  units: 'Metric',
+  weekStartsOn: 'Monday',
+  notifications: true,
+};
 
 const TRAINING_MODES: { key: TrainingMode; label: string; desc: string }[] = [
   { key: 'casual', label: 'Casual', desc: 'Stay active & healthy' },
@@ -24,77 +48,24 @@ const TRAINING_MODES: { key: TrainingMode; label: string; desc: string }[] = [
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { user, logout, refreshUser } = useAuth();
+  const [currentMode, setCurrentMode] = useState<TrainingMode>('professional');
 
-  const [history, setHistory] = useState<NormalizedHealthResponse[]>([]);
-  const [loadingStats, setLoadingStats] = useState(true);
-  const [savingMode, setSavingMode] = useState(false);
+  const fullName = `${PROFILE.firstName} ${PROFILE.lastName}`;
+  const initials = `${PROFILE.firstName.charAt(0)}${PROFILE.lastName.charAt(0)}`.toUpperCase();
 
-  const fetchStats = useCallback(async () => {
-    try {
-      const data = await apiService.getHealthHistory(30);
-      setHistory(data);
-    } catch {
-      // ignore
-    } finally {
-      setLoadingStats(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchStats(); }, [fetchStats]);
-
-  const handleModeChange = async (mode: TrainingMode) => {
-    if (mode === user?.profile?.trainingMode) return;
-    setSavingMode(true);
-    try {
-      await apiService.updateProfile({ trainingMode: mode });
-      await refreshUser();
-    } catch {
-      Alert.alert('Error', 'Could not update training mode');
-    } finally {
-      setSavingMode(false);
-    }
+  const handleModeChange = (mode: TrainingMode) => {
+    if (mode === currentMode) return;
+    Haptics.selectionAsync();
+    setCurrentMode(mode);
   };
 
   const handleLogout = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     Alert.alert('Logout', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Logout', style: 'destructive', onPress: () => logout() },
+      { text: 'Logout', style: 'destructive' },
     ]);
   };
-
-  // ── Stats ───────────────────────────────────────────────
-
-  const totalWorkoutDays = history.filter(
-    (d) => (d.activity?.exerciseMin ?? 0) > 0,
-  ).length;
-  const totalMinutes = history.reduce(
-    (s, d) => s + (d.activity?.exerciseMin ?? 0),
-    0,
-  );
-  const totalHours = (totalMinutes / 60).toFixed(1);
-
-  // Calculate streak (consecutive days with exercise from today backwards)
-  const streak = (() => {
-    let count = 0;
-    const sorted = [...history].sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-    );
-    for (const day of sorted) {
-      if ((day.activity?.exerciseMin ?? 0) > 0) count++;
-      else break;
-    }
-    return count;
-  })();
-
-  // ── Render ──────────────────────────────────────────────
-
-  const firstName = user?.profile?.firstName ?? '';
-  const lastName = user?.profile?.lastName ?? '';
-  const fullName = `${firstName} ${lastName}`.trim() || 'Athlete';
-  const email = user?.email ?? '';
-  const initials = (firstName.charAt(0) + lastName.charAt(0)).toUpperCase() || 'A';
-  const currentMode = user?.profile?.trainingMode ?? 'casual';
 
   return (
     <ScrollView
@@ -110,14 +81,14 @@ export default function ProfileScreen() {
           <Text style={styles.avatarLargeText}>{initials}</Text>
         </View>
         <Text style={[typography.h2, { marginTop: 14 }]}>{fullName}</Text>
-        <Text style={[typography.body, { color: colors.muted, marginTop: 4 }]}>{email}</Text>
-        {user?.profile?.sport && (
-          <View style={styles.sportBadge}>
-            <Text style={[typography.caption, { color: colors.accent }]}>
-              {user.profile.sport.toUpperCase()}
-            </Text>
-          </View>
-        )}
+        <Text style={[typography.body, { color: colors.muted, marginTop: 4 }]}>
+          {PROFILE.email}
+        </Text>
+        <View style={styles.sportBadge}>
+          <Text style={[typography.caption, { color: colors.accent }]}>
+            {PROFILE.sport.toUpperCase()}
+          </Text>
+        </View>
       </View>
 
       {/* Training Mode */}
@@ -129,7 +100,6 @@ export default function ProfileScreen() {
             style={[styles.modeCard, currentMode === m.key && styles.modeCardActive]}
             onPress={() => handleModeChange(m.key)}
             activeOpacity={0.7}
-            disabled={savingMode}
           >
             <View style={styles.modeRadio}>
               {currentMode === m.key && <View style={styles.modeRadioFill} />}
@@ -145,51 +115,47 @@ export default function ProfileScreen() {
       {/* Stats */}
       <View style={styles.section}>
         <Text style={[typography.label, styles.sectionLabel]}>30-DAY STATS</Text>
-        {loadingStats ? (
-          <ActivityIndicator color={colors.accent} style={{ marginTop: 20 }} />
-        ) : (
-          <View style={styles.statsRow}>
-            <View style={styles.statCard}>
-              <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-                <Path
-                  d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"
-                  stroke={colors.accent}
-                  strokeWidth={2}
-                  strokeLinejoin="round"
-                />
-              </Svg>
-              <Text style={[typography.h2, { color: colors.accent, marginTop: 8 }]}>
-                {totalWorkoutDays}
-              </Text>
-              <Text style={typography.caption}>Workouts</Text>
-            </View>
-            <View style={styles.statCard}>
-              <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-                <Circle cx={12} cy={12} r={9} stroke={colors.accent2} strokeWidth={2} />
-                <Path d="M12 8v4l2.5 2.5" stroke={colors.accent2} strokeWidth={2} strokeLinecap="round" />
-              </Svg>
-              <Text style={[typography.h2, { color: colors.accent2, marginTop: 8 }]}>
-                {totalHours}
-              </Text>
-              <Text style={typography.caption}>Hours</Text>
-            </View>
-            <View style={styles.statCard}>
-              <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-                <Path
-                  d="M4 17l4-4 3 3 5-7 4 4"
-                  stroke={colors.danger}
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </Svg>
-              <Text style={[typography.h2, { color: colors.danger, marginTop: 8 }]}>
-                {streak}
-              </Text>
-              <Text style={typography.caption}>Day Streak</Text>
-            </View>
+        <View style={styles.statsRow}>
+          <View style={styles.statCard}>
+            <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+              <Path
+                d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"
+                stroke={colors.accent}
+                strokeWidth={2}
+                strokeLinejoin="round"
+              />
+            </Svg>
+            <Text style={[typography.h2, { color: colors.accent, marginTop: 8 }]}>
+              {STATS_30D.workouts}
+            </Text>
+            <Text style={typography.caption}>Workouts</Text>
           </View>
-        )}
+          <View style={styles.statCard}>
+            <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+              <Circle cx={12} cy={12} r={9} stroke={colors.accent2} strokeWidth={2} />
+              <Path d="M12 8v4l2.5 2.5" stroke={colors.accent2} strokeWidth={2} strokeLinecap="round" />
+            </Svg>
+            <Text style={[typography.h2, { color: colors.accent2, marginTop: 8 }]}>
+              {STATS_30D.hours}
+            </Text>
+            <Text style={typography.caption}>Hours</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+              <Path
+                d="M4 17l4-4 3 3 5-7 4 4"
+                stroke={colors.danger}
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </Svg>
+            <Text style={[typography.h2, { color: colors.danger, marginTop: 8 }]}>
+              {STATS_30D.streak}
+            </Text>
+            <Text style={typography.caption}>Day Streak</Text>
+          </View>
+        </View>
       </View>
 
       {/* Connected Devices */}
@@ -210,37 +176,38 @@ export default function ProfileScreen() {
             <View style={{ flex: 1 }}>
               <Text style={typography.bodyBold}>Apple Health</Text>
               <Text style={[typography.caption, { marginTop: 2 }]}>
-                {user?.connectedSources?.appleHealth ? 'Connected' : 'Not connected'}
+                {CONNECTED.appleHealth ? 'Connected' : 'Not connected'}
               </Text>
             </View>
             <View
               style={[
                 styles.statusDot,
                 {
-                  backgroundColor: user?.connectedSources?.appleHealth
-                    ? colors.success
-                    : colors.muted,
+                  backgroundColor: CONNECTED.appleHealth ? colors.success : colors.muted,
                 },
               ]}
             />
           </View>
-          <View style={[styles.deviceRow, { borderTopWidth: 1, borderTopColor: colors.cardBorder, paddingTop: 14, marginTop: 14 }]}>
+          <View
+            style={[
+              styles.deviceRow,
+              { borderTopWidth: 1, borderTopColor: colors.cardBorder, paddingTop: 14, marginTop: 14 },
+            ]}
+          >
             <View style={[styles.deviceIcon, { backgroundColor: 'rgba(91,141,239,0.12)' }]}>
               <Text style={{ fontSize: 14, fontWeight: '700', color: colors.accent2 }}>W</Text>
             </View>
             <View style={{ flex: 1 }}>
               <Text style={typography.bodyBold}>WHOOP</Text>
               <Text style={[typography.caption, { marginTop: 2 }]}>
-                {user?.connectedSources?.whoop?.connected ? 'Connected' : 'Not connected'}
+                {CONNECTED.whoop ? 'Connected' : 'Not connected'}
               </Text>
             </View>
             <View
               style={[
                 styles.statusDot,
                 {
-                  backgroundColor: user?.connectedSources?.whoop?.connected
-                    ? colors.success
-                    : colors.muted,
+                  backgroundColor: CONNECTED.whoop ? colors.success : colors.muted,
                 },
               ]}
             />
@@ -255,19 +222,24 @@ export default function ProfileScreen() {
           <View style={styles.settingRow}>
             <Text style={typography.body}>Units</Text>
             <Text style={[typography.bodyBold, { color: colors.accent }]}>
-              {user?.settings?.units === 'imperial' ? 'Imperial' : 'Metric'}
+              {SETTINGS_INFO.units}
             </Text>
           </View>
           <View style={[styles.settingRow, { borderTopWidth: 1, borderTopColor: colors.cardBorder }]}>
             <Text style={typography.body}>Week starts on</Text>
             <Text style={[typography.bodyBold, { color: colors.accent }]}>
-              {user?.settings?.weekStartsOn === 'sunday' ? 'Sunday' : 'Monday'}
+              {SETTINGS_INFO.weekStartsOn}
             </Text>
           </View>
           <View style={[styles.settingRow, { borderTopWidth: 1, borderTopColor: colors.cardBorder }]}>
             <Text style={typography.body}>Notifications</Text>
-            <Text style={[typography.bodyBold, { color: user?.settings?.notifications ? colors.success : colors.muted }]}>
-              {user?.settings?.notifications ? 'On' : 'Off'}
+            <Text
+              style={[
+                typography.bodyBold,
+                { color: SETTINGS_INFO.notifications ? colors.success : colors.muted },
+              ]}
+            >
+              {SETTINGS_INFO.notifications ? 'On' : 'Off'}
             </Text>
           </View>
         </View>

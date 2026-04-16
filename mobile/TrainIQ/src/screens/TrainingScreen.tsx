@@ -8,6 +8,7 @@ import {
   Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
@@ -360,6 +361,7 @@ const summaryStyles = StyleSheet.create({
 
 function StartWorkoutRow() {
   const handleStart = (type: WorkoutType) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     Alert.alert(`Starting ${type}...`, 'Your workout is now being tracked.', [
       { text: 'OK' },
     ]);
@@ -435,7 +437,10 @@ function ActivityRow({ activity }: { activity: Activity }) {
   return (
     <TouchableOpacity
       style={activityStyles.card}
-      onPress={() => setExpanded((e) => !e)}
+      onPress={() => {
+        Haptics.selectionAsync();
+        setExpanded((e) => !e);
+      }}
       activeOpacity={0.85}
     >
       <View style={activityStyles.top}>
