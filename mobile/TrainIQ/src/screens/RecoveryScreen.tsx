@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
+import { getWhoopRecovery, getWhoopSleep } from '../services/whoopService';
+import type { WhoopRecovery, WhoopSleep } from '../services/whoopService';
 
 // ── Mock Data ─────────────────────────────────────────────
 
@@ -113,10 +115,10 @@ const ringStyles = StyleSheet.create({
 
 // ── Sleep Breakdown Grid ──────────────────────────────────
 
-function SleepBreakdown() {
+function SleepBreakdownData({ data }: { data: typeof SLEEP_DATA }) {
   return (
     <View style={sleepStyles.grid}>
-      {SLEEP_DATA.map((item) => (
+      {data.map((item) => (
         <View key={item.label} style={sleepStyles.card}>
           <Text style={[typography.caption, sleepStyles.label]}>{item.label}</Text>
           <View style={sleepStyles.valueRow}>
@@ -128,7 +130,7 @@ function SleepBreakdown() {
               style={[
                 sleepStyles.barFill,
                 {
-                  width: `${(parseFloat(item.value) / 8) * 100}%`,
+                  width: `${Math.min((parseFloat(item.value) / 8) * 100, 100)}%`,
                   backgroundColor: item.color,
                 },
               ]}
@@ -170,12 +172,12 @@ const sleepStyles = StyleSheet.create({
 
 // ── HRV Trend Bar Chart (pure RN primitives) ──────────────
 
-function HRVChart() {
-  const maxValue = Math.max(...HRV_DATA.map((d) => d.value));
-  const minValue = Math.min(...HRV_DATA.map((d) => d.value));
+function HRVChartData({ data }: { data: typeof HRV_DATA }) {
+  const maxValue = Math.max(...data.map((d) => d.value));
+  const minValue = Math.min(...data.map((d) => d.value));
   const range = maxValue - minValue || 1;
   const chartHeight = 140;
-  const avg = Math.round(HRV_DATA.reduce((s, d) => s + d.value, 0) / HRV_DATA.length);
+  const avg = Math.round(data.reduce((s, d) => s + d.value, 0) / data.length);
 
   return (
     <View style={chartStyles.container}>
@@ -189,8 +191,7 @@ function HRVChart() {
       </View>
 
       <View style={[chartStyles.chart, { height: chartHeight }]}>
-        {HRV_DATA.map((item, idx) => {
-          // Normalize so tallest bar = full height, shortest ≈ 25%
+        {data.map((item, idx) => {
           const normalized = 0.25 + ((item.value - minValue) / range) * 0.75;
           const barHeight = chartHeight * normalized;
           const isPeak = item.value === maxValue;
@@ -206,9 +207,7 @@ function HRVChart() {
                     chartStyles.bar,
                     {
                       height: barHeight,
-                      backgroundColor: isPeak
-                        ? colors.accent
-                        : 'rgba(200,241,53,0.25)',
+                      backgroundColor: isPeak ? colors.accent : 'rgba(200,241,53,0.25)',
                     },
                   ]}
                 />
@@ -470,6 +469,37 @@ const loggerStyles = StyleSheet.create({
 export default function RecoveryScreen() {
   const insets = useSafeAreaInsets();
 
+  const [whoopRecovery, setWhoopRecovery] = useState<WhoopRecovery | null>(null);
+  const [whoopSleep, setWhoopSleep] = useState<WhoopSleep | null>(null);
+
+  useEffect(() => {
+    // Attempt to load real WHOOP data; silently fall back to mock on failure
+    getWhoopRecovery().then((r) => { if (r) setWhoopRecovery(r); }).catch(() => {});
+    getWhoopSleep().then((s) => { if (s) setWhoopSleep(s); }).catch(() => {});
+  }, []);
+
+  const recoveryScore = whoopRecovery?.recoveryScore ?? RECOVERY_SCORE;
+
+  // Merge real sleep data over mock when available
+  const sleepData = SLEEP_DATA.map((item) => {
+    if (!whoopSleep) return item;
+    switch (item.label) {
+      case 'Total': return { ...item, value: whoopSleep.totalHours.toString() };
+      case 'Deep':  return { ...item, value: whoopSleep.deepHours.toString() };
+      case 'REM':   return { ...item, value: whoopSleep.remHours.toString() };
+      case 'Light': return { ...item, value: whoopSleep.lightHours.toString() };
+      default:      return item;
+    }
+  });
+
+  // Overlay HRV into the first bar in the chart if we have real data
+  const effectiveHrvData = (whoopRecovery?.hrvRmssd)
+    ? HRV_DATA.map((d, i) => i === 6 ? { ...d, value: whoopRecovery.hrvRmssd } : d)
+    : HRV_DATA;
+
+  // Source badge shown when using real WHOOP data
+  const isLive = whoopRecovery !== null;
+
   return (
     <ScrollView
       style={[styles.screen, { paddingTop: insets.top + 16 }]}
@@ -477,24 +507,59 @@ export default function RecoveryScreen() {
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.header}>
-        <Text style={[typography.caption, { marginBottom: 4 }]}>TODAY</Text>
-        <Text style={typography.h1}>Recovery</Text>
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={[typography.caption, { marginBottom: 4 }]}>TODAY</Text>
+            <Text style={typography.h1}>Recovery</Text>
+          </View>
+          {isLive && (
+            <View style={styles.liveBadge}>
+              <Text style={[typography.caption, { color: colors.accent, fontSize: 10, fontFamily: 'DMSans_700Bold' }]}>
+                WHOOP LIVE
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
 
       {/* Recovery Score Ring */}
       <View style={styles.section}>
-        <RecoveryRing score={RECOVERY_SCORE} />
+        <RecoveryRing score={recoveryScore} />
+        {whoopRecovery && (
+          <View style={styles.hrvRow}>
+            <View style={styles.metricPill}>
+              <Text style={[typography.caption, { fontSize: 11 }]}>HRV</Text>
+              <Text style={[typography.bodyBold, { color: colors.accent, marginTop: 2 }]}>
+                {whoopRecovery.hrvRmssd} ms
+              </Text>
+            </View>
+            <View style={styles.metricPill}>
+              <Text style={[typography.caption, { fontSize: 11 }]}>RHR</Text>
+              <Text style={[typography.bodyBold, { color: colors.accent2, marginTop: 2 }]}>
+                {whoopRecovery.restingHeartRate} bpm
+              </Text>
+            </View>
+            {whoopRecovery.spo2 !== undefined && (
+              <View style={styles.metricPill}>
+                <Text style={[typography.caption, { fontSize: 11 }]}>SpO₂</Text>
+                <Text style={[typography.bodyBold, { color: colors.text, marginTop: 2 }]}>
+                  {whoopRecovery.spo2?.toFixed(1)}%
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
       </View>
 
       {/* Sleep Breakdown */}
       <View style={styles.section}>
         <Text style={[typography.label, styles.sectionLabel]}>SLEEP BREAKDOWN</Text>
-        <SleepBreakdown />
+        <SleepBreakdownData data={sleepData} />
       </View>
 
       {/* HRV Chart */}
       <View style={styles.section}>
-        <HRVChart />
+        <HRVChartData data={effectiveHrvData} />
       </View>
 
       {/* Readiness Breakdown */}
@@ -516,6 +581,35 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: { padding: 20, paddingBottom: 40 },
   header: { marginBottom: 20 },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+  },
+  liveBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(200,241,53,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(200,241,53,0.30)',
+    marginBottom: 4,
+  },
   section: { marginTop: 28 },
   sectionLabel: { marginBottom: 14 },
+  hrvRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
+    marginTop: 20,
+  },
+  metricPill: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    padding: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
 });

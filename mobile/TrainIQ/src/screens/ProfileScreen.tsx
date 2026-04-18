@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,12 +6,14 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
+import { whoopAuth, whoopStatus } from '../services/whoopService';
 import type { TrainingMode } from '../types';
 
 // ── Mock Data ─────────────────────────────────────────────
@@ -29,10 +31,10 @@ const STATS_30D = {
   streak: 6,
 };
 
-const CONNECTED = {
+const CONNECTED_DEFAULTS = {
   appleHealth: true,
-  whoop: false,
 };
+
 
 const SETTINGS_INFO = {
   units: 'Metric',
@@ -49,9 +51,32 @@ const TRAINING_MODES: { key: TrainingMode; label: string; desc: string }[] = [
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const [currentMode, setCurrentMode] = useState<TrainingMode>('professional');
+  const [whoopConnected, setWhoopConnected] = useState(false);
+  const [connectingWhoop, setConnectingWhoop] = useState(false);
 
   const fullName = `${PROFILE.firstName} ${PROFILE.lastName}`;
   const initials = `${PROFILE.firstName.charAt(0)}${PROFILE.lastName.charAt(0)}`.toUpperCase();
+
+  const checkWhoopStatus = useCallback(async () => {
+    const connected = await whoopStatus();
+    setWhoopConnected(connected);
+  }, []);
+
+  useEffect(() => {
+    checkWhoopStatus();
+  }, [checkWhoopStatus]);
+
+  const handleWhoopConnect = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setConnectingWhoop(true);
+    try {
+      await whoopAuth();
+      // Browser closed — check if token was stored by the backend
+      await checkWhoopStatus();
+    } finally {
+      setConnectingWhoop(false);
+    }
+  };
 
   const handleModeChange = (mode: TrainingMode) => {
     if (mode === currentMode) return;
@@ -162,6 +187,7 @@ export default function ProfileScreen() {
       <View style={styles.section}>
         <Text style={[typography.label, styles.sectionLabel]}>CONNECTED DEVICES</Text>
         <View style={styles.deviceCard}>
+          {/* Apple Health */}
           <View style={styles.deviceRow}>
             <View style={[styles.deviceIcon, { backgroundColor: 'rgba(239,68,68,0.12)' }]}>
               <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
@@ -176,18 +202,18 @@ export default function ProfileScreen() {
             <View style={{ flex: 1 }}>
               <Text style={typography.bodyBold}>Apple Health</Text>
               <Text style={[typography.caption, { marginTop: 2 }]}>
-                {CONNECTED.appleHealth ? 'Connected' : 'Not connected'}
+                {CONNECTED_DEFAULTS.appleHealth ? 'Connected' : 'Not connected'}
               </Text>
             </View>
             <View
               style={[
                 styles.statusDot,
-                {
-                  backgroundColor: CONNECTED.appleHealth ? colors.success : colors.muted,
-                },
+                { backgroundColor: CONNECTED_DEFAULTS.appleHealth ? colors.success : colors.muted },
               ]}
             />
           </View>
+
+          {/* WHOOP */}
           <View
             style={[
               styles.deviceRow,
@@ -200,17 +226,27 @@ export default function ProfileScreen() {
             <View style={{ flex: 1 }}>
               <Text style={typography.bodyBold}>WHOOP</Text>
               <Text style={[typography.caption, { marginTop: 2 }]}>
-                {CONNECTED.whoop ? 'Connected' : 'Not connected'}
+                {whoopConnected ? 'Connected' : 'Not connected'}
               </Text>
             </View>
-            <View
-              style={[
-                styles.statusDot,
-                {
-                  backgroundColor: CONNECTED.whoop ? colors.success : colors.muted,
-                },
-              ]}
-            />
+            {whoopConnected ? (
+              <View style={[styles.statusDot, { backgroundColor: colors.success }]} />
+            ) : (
+              <TouchableOpacity
+                style={styles.connectBtn}
+                onPress={handleWhoopConnect}
+                activeOpacity={0.8}
+                disabled={connectingWhoop}
+              >
+                {connectingWhoop ? (
+                  <ActivityIndicator size="small" color={colors.accent} />
+                ) : (
+                  <Text style={[typography.caption, { fontFamily: 'DMSans_700Bold', color: colors.accent }]}>
+                    Connect
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </View>
@@ -340,6 +376,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   statusDot: { width: 10, height: 10, borderRadius: 5 },
+  connectBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    backgroundColor: 'rgba(200,241,53,0.08)',
+    minWidth: 72,
+    alignItems: 'center',
+  },
   settingsCard: {
     backgroundColor: colors.surface,
     borderRadius: 16,
