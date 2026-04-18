@@ -7,6 +7,7 @@ import authRoutes from './routes/auth';
 import userRoutes from './routes/user';
 import healthRoutes from './routes/health';
 import coachRoutes from './routes/coach';
+import whoopRoutes from './routes/whoop';
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/coach', coachRoutes);
+app.use('/api/whoop', whoopRoutes);
 
 // ── Error handler ──────────────────────────────────────
 
@@ -41,8 +43,14 @@ app.use(
 // ── Start ──────────────────────────────────────────────
 
 async function start() {
-  await mongoose.connect(config.mongodb.uri);
-  console.log('Connected to MongoDB');
+  if (config.mongodb.uri) {
+    try {
+      await mongoose.connect(config.mongodb.uri);
+      console.log('Connected to MongoDB');
+    } catch(e) {
+      console.warn('MongoDB unavailable, continuing without DB');
+    }
+  }
 
   app.listen(config.port, () => {
     console.log(`TrainIQ API running on port ${config.port}`);
