@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
@@ -13,6 +14,8 @@ import Svg, { Path, Circle } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
+import { whoopStatus, getWhoopWorkouts } from '../services/whoopService';
+import type { WhoopWorkout } from '../services/whoopService';
 
 // ── Design Tokens ─────────────────────────────────────────
 
@@ -49,9 +52,16 @@ interface DayLoad {
   isToday: boolean;
 }
 
+interface WeekStats {
+  activeDays: number;
+  totalDays: number;
+  totalMinutes: number;
+  calories: number;
+}
+
 // ── Mock Data ─────────────────────────────────────────────
 
-const WEEK_STATS = {
+const MOCK_WEEK_STATS: WeekStats = {
   activeDays: 4,
   totalDays: 7,
   totalMinutes: 187,
@@ -66,7 +76,7 @@ const WORKOUT_TYPES: WorkoutTypeConfig[] = [
   { name: 'HIIT', color: WARNING, gradient: ['rgba(245,166,35,0.18)', 'rgba(245,166,35,0.04)'] },
 ];
 
-const ACTIVITIES: Activity[] = [
+const MOCK_ACTIVITIES: Activity[] = [
   {
     id: 'a1',
     type: 'Running',
@@ -129,7 +139,7 @@ const ACTIVITIES: Activity[] = [
   },
 ];
 
-const WEEKLY_LOAD: DayLoad[] = [
+const MOCK_WEEKLY_LOAD: DayLoad[] = [
   { day: 'Mon', load: 25, intensity: 9, isToday: false },
   { day: 'Tue', load: 0, intensity: 0, isToday: false },
   { day: 'Wed', load: 48, intensity: 7, isToday: false },
@@ -138,6 +148,103 @@ const WEEKLY_LOAD: DayLoad[] = [
   { day: 'Sat', load: 0, intensity: 0, isToday: false },
   { day: 'Today', load: 62, intensity: 6, isToday: true },
 ];
+
+// ── WHOOP Helpers ─────────────────────────────────────────
+
+const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+function sportToWorkoutType(sport: string): WorkoutType {
+  const s = sport.toLowerCase();
+  if (s.includes('run') || s.includes('walk') || s.includes('hike') || s.includes('trail')) return 'Running';
+  if (s.includes('cycl') || s.includes('bike') || s.includes('spin')) return 'Cycling';
+  if (s.includes('swim')) return 'Swimming';
+  if (s.includes('hiit') || s.includes('crossfit') || s.includes('cardio') || s.includes('elliptical') || s.includes('functional')) return 'HIIT';
+  return 'Strength';
+}
+
+function strainToRPE(strain?: number): number {
+  if (strain == null) return 3;
+  if (strain >= 15) return 9;
+  if (strain >= 12) return 8;
+  if (strain >= 8) return 7;
+  if (strain >= 5) return 5;
+  return 3;
+}
+
+function formatWorkoutDate(startTime: string): string {
+  if (!startTime) return '';
+  const d = new Date(startTime);
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yestStart = new Date(todayStart.getTime() - 86_400_000);
+  const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  if (d >= todayStart) return `Today · ${timeStr}`;
+  if (d >= yestStart) return `Yesterday · ${timeStr}`;
+  return `${DAY_LABELS[(d.getDay() + 6) % 7]} · ${timeStr}`;
+}
+
+function whoopToActivity(w: WhoopWorkout): Activity {
+  return {
+    id: String(w.id),
+    type: sportToWorkoutType(w.sport),
+    name: w.sport,
+    date: formatWorkoutDate(w.startTime),
+    durationMin: w.durationMin,
+    calories: Math.round((w.kilojoules ?? 0) / 4.184),
+    avgHr: w.avgHeartRate,
+    maxHr: w.maxHeartRate,
+    intensity: strainToRPE(w.strain),
+  };
+}
+
+function buildWeeklyLoad(workouts: WhoopWorkout[]): DayLoad[] {
+  const now = new Date();
+  const todayDow = (now.getDay() + 6) % 7; // 0=Mon … 6=Sun
+  const monday = new Date(now);
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(now.getDate() - todayDow);
+
+  const loads: DayLoad[] = Array.from({ length: 7 }, (_, i) => ({
+    day: i === todayDow ? 'Today' : DAY_LABELS[i],
+    load: 0,
+    intensity: 0,
+    isToday: i === todayDow,
+  }));
+
+  for (const w of workouts) {
+    if (!w.startTime) continue;
+    const d = new Date(w.startTime);
+    const diffDays = Math.floor((d.getTime() - monday.getTime()) / 86_400_000);
+    if (diffDays >= 0 && diffDays <= 6) {
+      loads[diffDays].load += w.durationMin;
+      loads[diffDays].intensity = Math.max(loads[diffDays].intensity, strainToRPE(w.strain));
+    }
+  }
+
+  return loads;
+}
+
+function computeWeekStats(workouts: WhoopWorkout[]): WeekStats {
+  const now = new Date();
+  const todayDow = (now.getDay() + 6) % 7;
+  const monday = new Date(now);
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(now.getDate() - todayDow);
+
+  const thisWeek = workouts.filter((w) => w.startTime && new Date(w.startTime) >= monday);
+
+  const activeDays = new Set(thisWeek.map((w) => new Date(w.startTime).toDateString())).size;
+  const totalMinutes = thisWeek.reduce((sum, w) => sum + w.durationMin, 0);
+  const calories = Math.round(thisWeek.reduce((sum, w) => sum + (w.kilojoules ?? 0) / 4.184, 0));
+
+  return { activeDays, totalDays: 7, totalMinutes, calories };
+}
+
+// ── Date Header ───────────────────────────────────────────
+
+const _now = new Date();
+const _MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+const TODAY_LABEL = `${_MONTHS[_now.getMonth()]} ${_now.getDate()}, ${_now.getFullYear()}`;
 
 // ── Workout Icon ──────────────────────────────────────────
 
@@ -262,8 +369,8 @@ function StatIcon({ kind, color }: { kind: 'days' | 'minutes' | 'calories'; colo
 
 // ── Week Summary ──────────────────────────────────────────
 
-function WeekSummary() {
-  const completion = (WEEK_STATS.activeDays / WEEK_STATS.totalDays) * 100;
+function WeekSummary({ stats }: { stats: WeekStats }) {
+  const completion = (stats.activeDays / stats.totalDays) * 100;
 
   return (
     <View style={summaryStyles.card}>
@@ -282,8 +389,8 @@ function WeekSummary() {
         <View style={summaryStyles.stat}>
           <StatIcon kind="days" color={colors.accent} />
           <Text style={[typography.h2, summaryStyles.statValue, { color: colors.accent }]}>
-            {WEEK_STATS.activeDays}
-            <Text style={[typography.caption, { color: colors.muted }]}>/{WEEK_STATS.totalDays}</Text>
+            {stats.activeDays}
+            <Text style={[typography.caption, { color: colors.muted }]}>/{stats.totalDays}</Text>
           </Text>
           <Text style={typography.caption}>Active Days</Text>
         </View>
@@ -293,7 +400,7 @@ function WeekSummary() {
         <View style={summaryStyles.stat}>
           <StatIcon kind="minutes" color={colors.accent2} />
           <Text style={[typography.h2, summaryStyles.statValue, { color: colors.accent2 }]}>
-            {WEEK_STATS.totalMinutes}
+            {stats.totalMinutes}
           </Text>
           <Text style={typography.caption}>Minutes</Text>
         </View>
@@ -303,7 +410,7 @@ function WeekSummary() {
         <View style={summaryStyles.stat}>
           <StatIcon kind="calories" color={colors.danger} />
           <Text style={[typography.h2, summaryStyles.statValue, { color: colors.danger }]}>
-            {(WEEK_STATS.calories / 1000).toFixed(1)}k
+            {stats.calories >= 1000 ? `${(stats.calories / 1000).toFixed(1)}k` : String(stats.calories)}
           </Text>
           <Text style={typography.caption}>Calories</Text>
         </View>
@@ -573,8 +680,8 @@ const activityStyles = StyleSheet.create({
 
 // ── Weekly Progress Chart ─────────────────────────────────
 
-function WeeklyProgress() {
-  const maxLoad = Math.max(...WEEKLY_LOAD.map((d) => d.load), 1);
+function WeeklyProgress({ weeklyLoad }: { weeklyLoad: DayLoad[] }) {
+  const maxLoad = Math.max(...weeklyLoad.map((d) => d.load), 1);
   const chartHeight = 140;
 
   const intensityColor = (i: number) => {
@@ -596,7 +703,7 @@ function WeeklyProgress() {
       </View>
 
       <View style={[chartStyles.chart, { height: chartHeight }]}>
-        {WEEKLY_LOAD.map((day) => {
+        {weeklyLoad.map((day) => {
           const barH = day.load > 0 ? Math.max((day.load / maxLoad) * chartHeight, 6) : 0;
           const barColor = intensityColor(day.intensity);
 
@@ -699,6 +806,46 @@ const chartStyles = StyleSheet.create({
 
 export default function TrainingScreen() {
   const insets = useSafeAreaInsets();
+  const [loading, setLoading] = useState(true);
+  const [whoopConnected, setWhoopConnected] = useState(false);
+  const [activities, setActivities] = useState<Activity[]>(MOCK_ACTIVITIES);
+  const [weekStats, setWeekStats] = useState<WeekStats>(MOCK_WEEK_STATS);
+  const [weeklyLoad, setWeeklyLoad] = useState<DayLoad[]>(MOCK_WEEKLY_LOAD);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const connected = await whoopStatus();
+        if (cancelled) return;
+        setWhoopConnected(connected);
+
+        if (connected) {
+          const workouts = await getWhoopWorkouts();
+          if (cancelled) return;
+          if (workouts.length > 0) {
+            setActivities(workouts.map(whoopToActivity));
+            setWeekStats(computeWeekStats(workouts));
+            setWeeklyLoad(buildWeeklyLoad(workouts));
+          }
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <View style={[styles.screen, styles.center]}>
+        <ActivityIndicator size="large" color={colors.accent} />
+      </View>
+    );
+  }
 
   return (
     <ScrollView
@@ -707,13 +854,20 @@ export default function TrainingScreen() {
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.header}>
-        <Text style={[typography.caption, { marginBottom: 4 }]}>APR 15, 2026</Text>
-        <Text style={typography.h1}>Training</Text>
+        <Text style={[typography.caption, { marginBottom: 4 }]}>{TODAY_LABEL}</Text>
+        <View style={styles.titleRow}>
+          <Text style={typography.h1}>Training</Text>
+          {whoopConnected && (
+            <View style={styles.liveBadge}>
+              <Text style={styles.liveBadgeText}>WHOOP LIVE</Text>
+            </View>
+          )}
+        </View>
       </View>
 
       {/* This Week */}
       <View style={styles.section}>
-        <WeekSummary />
+        <WeekSummary stats={weekStats} />
       </View>
 
       {/* Start Workout */}
@@ -728,14 +882,14 @@ export default function TrainingScreen() {
           <Text style={typography.label}>RECENT ACTIVITY</Text>
           <Text style={[typography.caption, { color: colors.accent }]}>Last 7 days</Text>
         </View>
-        {ACTIVITIES.map((a) => (
+        {activities.map((a) => (
           <ActivityRow key={a.id} activity={a} />
         ))}
       </View>
 
       {/* Weekly Progress */}
       <View style={styles.section}>
-        <WeeklyProgress />
+        <WeeklyProgress weeklyLoad={weeklyLoad} />
       </View>
     </ScrollView>
   );
@@ -743,8 +897,24 @@ export default function TrainingScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
+  center: { alignItems: 'center', justifyContent: 'center' },
   content: { padding: 20, paddingBottom: 40 },
   header: { marginBottom: 20 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  liveBadge: {
+    backgroundColor: 'rgba(200,241,53,0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(200,241,53,0.30)',
+  },
+  liveBadgeText: {
+    fontFamily: 'DMSans_700Bold',
+    fontSize: 10,
+    letterSpacing: 0.8,
+    color: colors.accent,
+  },
   section: { marginTop: 24 },
   sectionLabel: { marginBottom: 14 },
   sectionHeader: {

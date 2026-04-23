@@ -1,6 +1,6 @@
 import * as WebBrowser from 'expo-web-browser';
 
-const BACKEND = 'https://j59qhqww-4000.app.github.dev';
+const BACKEND = 'https://ubiquitous-spork-97p65j6qjxvp29rxg-4000.app.github.dev';
 
 // ── Auth ──────────────────────────────────────────────────
 
@@ -30,10 +30,11 @@ export async function whoopStatus(): Promise<boolean> {
 // ── Data fetchers ─────────────────────────────────────────
 
 export interface WhoopRecovery {
-  recoveryScore: number;       // 0-100
-  hrvRmssd: number;            // ms
-  restingHeartRate: number;    // bpm
-  spo2?: number;               // %
+  recoveryScore: number;
+  hrvRmssd: number;
+  restingHeartRate: number;
+  spo2?: number;
+  skinTempCelsius?: number;
 }
 
 export interface WhoopSleep {
@@ -41,6 +42,7 @@ export interface WhoopSleep {
   deepHours: number;
   remHours: number;
   lightHours: number;
+  sleepEfficiency?: number;
 }
 
 export interface WhoopWorkout {
@@ -51,6 +53,7 @@ export interface WhoopWorkout {
   avgHeartRate?: number;
   maxHeartRate?: number;
   kilojoules?: number;
+  strain?: number;
 }
 
 export async function getWhoopRecovery(): Promise<WhoopRecovery | null> {
@@ -64,6 +67,7 @@ export async function getWhoopRecovery(): Promise<WhoopRecovery | null> {
           hrv_rmssd_milli?: number;
           resting_heart_rate?: number;
           spo2_percentage?: number;
+          skin_temp_celsius?: number;
         };
       }>;
     };
@@ -74,6 +78,7 @@ export async function getWhoopRecovery(): Promise<WhoopRecovery | null> {
       hrvRmssd: Math.round(record.score.hrv_rmssd_milli ?? 0),
       restingHeartRate: Math.round(record.score.resting_heart_rate ?? 0),
       spo2: record.score.spo2_percentage,
+      skinTempCelsius: record.score.skin_temp_celsius,
     };
   } catch {
     return null;
@@ -89,14 +94,18 @@ export async function getWhoopSleep(): Promise<WhoopSleep | null> {
         score?: {
           stage_summary?: {
             total_in_bed_time_milli?: number;
+            total_awake_time_milli?: number;
             total_light_sleep_time_milli?: number;
             total_slow_wave_sleep_time_milli?: number;
             total_rem_sleep_time_milli?: number;
           };
+          sleep_efficiency_percentage?: number;
+          sleep_performance_percentage?: number;
         };
       }>;
     };
-    const stage = data.records?.[0]?.score?.stage_summary;
+    const score = data.records?.[0]?.score;
+    const stage = score?.stage_summary;
     if (!stage) return null;
 
     const msToHrs = (ms: number) => parseFloat((ms / 3_600_000).toFixed(1));
@@ -106,7 +115,13 @@ export async function getWhoopSleep(): Promise<WhoopSleep | null> {
     const light = msToHrs(stage.total_light_sleep_time_milli ?? 0);
     const total = parseFloat((deep + rem + light).toFixed(1));
 
-    return { totalHours: total, deepHours: deep, remHours: rem, lightHours: light };
+    return {
+      totalHours: total,
+      deepHours: deep,
+      remHours: rem,
+      lightHours: light,
+      sleepEfficiency: score?.sleep_efficiency_percentage,
+    };
   } catch {
     return null;
   }
@@ -120,13 +135,15 @@ export async function getWhoopWorkouts(): Promise<WhoopWorkout[]> {
       records?: Array<{
         id?: number;
         sport_id?: number;
+        sport_name?: string;
         start?: string;
+        end?: string;
         score?: {
+          strain?: number;
           average_heart_rate?: number;
           max_heart_rate?: number;
           kilojoule?: number;
         };
-        end?: string;
       }>;
     };
 
@@ -135,12 +152,13 @@ export async function getWhoopWorkouts(): Promise<WhoopWorkout[]> {
       const endMs = r.end ? new Date(r.end).getTime() : startMs;
       return {
         id: r.id ?? 0,
-        sport: sportName(r.sport_id ?? -1),
+        sport: r.sport_name ?? sportName(r.sport_id ?? -1),
         startTime: r.start ?? '',
         durationMin: Math.round((endMs - startMs) / 60_000),
         avgHeartRate: r.score?.average_heart_rate,
         maxHeartRate: r.score?.max_heart_rate,
         kilojoules: r.score?.kilojoule,
+        strain: r.score?.strain,
       };
     });
   } catch {

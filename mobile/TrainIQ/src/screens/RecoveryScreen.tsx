@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
-import { getWhoopRecovery, getWhoopSleep } from '../services/whoopService';
+import { whoopStatus, getWhoopRecovery, getWhoopSleep } from '../services/whoopService';
 import type { WhoopRecovery, WhoopSleep } from '../services/whoopService';
 
 // ── Mock Data ─────────────────────────────────────────────
@@ -330,6 +330,64 @@ const breakdownStyles = StyleSheet.create({
   barFill: { height: '100%', borderRadius: 4 },
 });
 
+// ── Sleep Efficiency Card ────────────────────────────────
+
+function SleepEfficiencyCard({ efficiency }: { efficiency: number }) {
+  const effColor = efficiency >= 85 ? colors.accent : efficiency >= 70 ? '#F59E0B' : colors.danger;
+  const size = 80;
+  const sw = 8;
+  const r = (size - sw) / 2;
+  const circ = 2 * Math.PI * r;
+  const prog = (efficiency / 100) * circ;
+  const cx = size / 2;
+
+  return (
+    <View style={effStyles.card}>
+      <View style={effStyles.row}>
+        <View style={{ width: size, height: size }}>
+          <Svg width={size} height={size}>
+            <Circle cx={cx} cy={cx} r={r} stroke={colors.cardBorder} strokeWidth={sw} fill="none" />
+            <Circle
+              cx={cx} cy={cx} r={r}
+              stroke={effColor} strokeWidth={sw} fill="none"
+              strokeDasharray={`${prog} ${circ}`}
+              strokeLinecap="round" rotation={-90} origin={`${cx}, ${cx}`}
+            />
+          </Svg>
+          <View style={effStyles.ringLabel}>
+            <Text style={[typography.bodyBold, { color: effColor, fontSize: 18 }]}>
+              {Math.round(efficiency)}%
+            </Text>
+          </View>
+        </View>
+        <View style={{ flex: 1, marginLeft: 18 }}>
+          <Text style={typography.bodyBold}>Sleep Efficiency</Text>
+          <Text style={[typography.caption, { marginTop: 4, lineHeight: 18 }]}>
+            Percentage of time in bed actually spent sleeping. Above 85% is optimal.
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const effStyles = StyleSheet.create({
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  ringLabel: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
+
 // ── Subjective Recovery Logger ────────────────────────────
 
 interface RatingRowProps {
@@ -387,7 +445,6 @@ function SubjectiveLogger() {
   const [mood, setMood] = useState(4);
 
   const handleLog = () => {
-    // In production this would POST to the backend
     console.log('Recovery logged:', { fatigue, soreness, mood });
   };
 
@@ -469,36 +526,52 @@ const loggerStyles = StyleSheet.create({
 export default function RecoveryScreen() {
   const insets = useSafeAreaInsets();
 
-  const [whoopRecovery, setWhoopRecovery] = useState<WhoopRecovery | null>(null);
-  const [whoopSleep, setWhoopSleep] = useState<WhoopSleep | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [recovery, setRecovery] = useState<WhoopRecovery | null>(null);
+  const [sleep, setSleep] = useState<WhoopSleep | null>(null);
 
   useEffect(() => {
-    // Attempt to load real WHOOP data; silently fall back to mock on failure
-    getWhoopRecovery().then((r) => { if (r) setWhoopRecovery(r); }).catch(() => {});
-    getWhoopSleep().then((s) => { if (s) setWhoopSleep(s); }).catch(() => {});
+    let cancelled = false;
+    (async () => {
+      try {
+        const connected = await whoopStatus();
+        if (!connected || cancelled) { setLoading(false); return; }
+        const [r, s] = await Promise.all([getWhoopRecovery(), getWhoopSleep()]);
+        if (!cancelled) { setRecovery(r); setSleep(s); }
+      } catch {
+        // fall back to mock silently
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
-  const recoveryScore = whoopRecovery?.recoveryScore ?? RECOVERY_SCORE;
+  const isLive = recovery !== null;
+  const recoveryScore = recovery?.recoveryScore ?? RECOVERY_SCORE;
 
-  // Merge real sleep data over mock when available
   const sleepData = SLEEP_DATA.map((item) => {
-    if (!whoopSleep) return item;
+    if (!sleep) return item;
     switch (item.label) {
-      case 'Total': return { ...item, value: whoopSleep.totalHours.toString() };
-      case 'Deep':  return { ...item, value: whoopSleep.deepHours.toString() };
-      case 'REM':   return { ...item, value: whoopSleep.remHours.toString() };
-      case 'Light': return { ...item, value: whoopSleep.lightHours.toString() };
+      case 'Total': return { ...item, value: sleep.totalHours.toString() };
+      case 'Deep':  return { ...item, value: sleep.deepHours.toString() };
+      case 'REM':   return { ...item, value: sleep.remHours.toString() };
+      case 'Light': return { ...item, value: sleep.lightHours.toString() };
       default:      return item;
     }
   });
 
-  // Overlay HRV into the first bar in the chart if we have real data
-  const effectiveHrvData = (whoopRecovery?.hrvRmssd)
-    ? HRV_DATA.map((d, i) => i === 6 ? { ...d, value: whoopRecovery.hrvRmssd } : d)
+  const effectiveHrvData = recovery?.hrvRmssd
+    ? HRV_DATA.map((d, i) => i === 6 ? { ...d, value: recovery.hrvRmssd } : d)
     : HRV_DATA;
 
-  // Source badge shown when using real WHOOP data
-  const isLive = whoopRecovery !== null;
+  if (loading) {
+    return (
+      <View style={[styles.screen, styles.loadingWrap, { paddingTop: insets.top + 16 }]}>
+        <ActivityIndicator size="large" color={colors.accent} />
+      </View>
+    );
+  }
 
   return (
     <ScrollView
@@ -525,25 +598,33 @@ export default function RecoveryScreen() {
       {/* Recovery Score Ring */}
       <View style={styles.section}>
         <RecoveryRing score={recoveryScore} />
-        {whoopRecovery && (
-          <View style={styles.hrvRow}>
+        {isLive && (
+          <View style={styles.metricsRow}>
             <View style={styles.metricPill}>
               <Text style={[typography.caption, { fontSize: 11 }]}>HRV</Text>
               <Text style={[typography.bodyBold, { color: colors.accent, marginTop: 2 }]}>
-                {whoopRecovery.hrvRmssd} ms
+                {recovery.hrvRmssd} ms
               </Text>
             </View>
             <View style={styles.metricPill}>
               <Text style={[typography.caption, { fontSize: 11 }]}>RHR</Text>
               <Text style={[typography.bodyBold, { color: colors.accent2, marginTop: 2 }]}>
-                {whoopRecovery.restingHeartRate} bpm
+                {recovery.restingHeartRate} bpm
               </Text>
             </View>
-            {whoopRecovery.spo2 !== undefined && (
+            {recovery.spo2 != null && (
               <View style={styles.metricPill}>
                 <Text style={[typography.caption, { fontSize: 11 }]}>SpO₂</Text>
                 <Text style={[typography.bodyBold, { color: colors.text, marginTop: 2 }]}>
-                  {whoopRecovery.spo2?.toFixed(1)}%
+                  {recovery.spo2.toFixed(1)}%
+                </Text>
+              </View>
+            )}
+            {recovery.skinTempCelsius != null && (
+              <View style={styles.metricPill}>
+                <Text style={[typography.caption, { fontSize: 11 }]}>Skin</Text>
+                <Text style={[typography.bodyBold, { color: '#F59E0B', marginTop: 2 }]}>
+                  {recovery.skinTempCelsius.toFixed(1)}°C
                 </Text>
               </View>
             )}
@@ -556,6 +637,13 @@ export default function RecoveryScreen() {
         <Text style={[typography.label, styles.sectionLabel]}>SLEEP BREAKDOWN</Text>
         <SleepBreakdownData data={sleepData} />
       </View>
+
+      {/* Sleep Efficiency */}
+      {sleep?.sleepEfficiency != null && (
+        <View style={styles.section}>
+          <SleepEfficiencyCard efficiency={sleep.sleepEfficiency} />
+        </View>
+      )}
 
       {/* HRV Chart */}
       <View style={styles.section}>
@@ -579,6 +667,7 @@ export default function RecoveryScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
+  loadingWrap: { alignItems: 'center', justifyContent: 'center' },
   content: { padding: 20, paddingBottom: 40 },
   header: { marginBottom: 20 },
   headerRow: {
@@ -597,10 +686,10 @@ const styles = StyleSheet.create({
   },
   section: { marginTop: 28 },
   sectionLabel: { marginBottom: 14 },
-  hrvRow: {
+  metricsRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 12,
+    gap: 10,
     marginTop: 20,
   },
   metricPill: {
