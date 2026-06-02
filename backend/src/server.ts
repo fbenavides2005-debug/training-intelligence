@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import { config } from './config';
-
 import authRoutes from './routes/auth';
 import userRoutes from './routes/user';
 import healthRoutes from './routes/health';
@@ -12,14 +11,17 @@ import whoopRoutes from './routes/whoop';
 const app = express();
 
 // ── Middleware ──────────────────────────────────────────
-
-app.use(cors());
+app.use(cors({
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.options('*', cors());
 app.use(express.json({ limit: '5mb' }));
 
 // ── Routes ─────────────────────────────────────────────
-
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
-
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/health', healthRoutes);
@@ -27,7 +29,6 @@ app.use('/api/coach', coachRoutes);
 app.use('/api/whoop', whoopRoutes);
 
 // ── Error handler ──────────────────────────────────────
-
 app.use(
   (
     err: Error,
@@ -41,7 +42,6 @@ app.use(
 );
 
 // ── Start ──────────────────────────────────────────────
-
 async function start() {
   if (config.mongodb.uri) {
     try {
@@ -51,7 +51,6 @@ async function start() {
       console.warn('MongoDB unavailable, continuing without DB');
     }
   }
-
   app.listen(config.port, () => {
     console.log(`TrainIQ API running on port ${config.port}`);
     console.log(`Environment: ${config.env}`);
