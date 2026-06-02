@@ -7,12 +7,15 @@ import {
   TouchableOpacity,
   Animated,
   Easing,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
+import { getRecommendations, getWeeklyPlan, getReadiness } from '../services/apiService';
+import type { RecommendationResponse, WeeklyPlanResponse } from '../types';
 
 // ── Design Tokens ─────────────────────────────────────────
 
@@ -43,12 +46,12 @@ interface PlanDay {
   isToday: boolean;
 }
 
-// ── Mock Data ─────────────────────────────────────────────
+// ── Mock Data (fallback) ─────────────────────────────────
 
-const RECOVERY_SCORE = 82;
-const READINESS_LABEL = 'PEAK';
+const MOCK_RECOVERY_SCORE = 82;
+const MOCK_READINESS_LABEL = 'PEAK';
 
-const INITIAL_RECS: Recommendation[] = [
+const MOCK_RECS: Recommendation[] = [
   {
     id: 'r1',
     priority: 'HIGH',
@@ -81,7 +84,7 @@ const INITIAL_RECS: Recommendation[] = [
   },
 ];
 
-const WEEKLY_PLAN: PlanDay[] = [
+const MOCK_WEEKLY_PLAN: PlanDay[] = [
   { day: 'MON', type: 'run', title: 'Long Run', durationMin: 60, rpe: 6, completed: true, isToday: false },
   { day: 'TUE', type: 'strength', title: 'Upper Body', durationMin: 45, rpe: 7, completed: true, isToday: false },
   { day: 'WED', type: 'rest', title: 'Rest Day', durationMin: 0, rpe: 0, completed: true, isToday: false },
@@ -99,6 +102,65 @@ const INSIGHTS = [
   'Protein timing within two hours post-workout maximizes muscle protein synthesis.',
   'Zone 2 training builds your aerobic base without compromising recovery.',
 ];
+
+// ── API → Local Type Mappers ─────────────────────────────
+
+const DAY_ABBRS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+
+function mapWorkoutType(type: string): WorkoutType {
+  const t = type.toLowerCase();
+  if (t === 'run' || t === 'running') return 'run';
+  if (t === 'strength' || t === 'weights' || t === 'lifting') return 'strength';
+  if (t === 'rest' || t === 'recovery' || t === 'active_recovery') return 'rest';
+  if (t === 'cycle' || t === 'cycling' || t === 'bike') return 'cycle';
+  if (t === 'tempo') return 'tempo';
+  if (t === 'easy') return 'easy';
+  if (t === 'intervals' || t === 'hiit' || t === 'speed') return 'intervals';
+  return 'easy';
+}
+
+function mapPriority(p: string): Priority {
+  const upper = p.toUpperCase();
+  if (upper === 'HIGH') return 'HIGH';
+  if (upper === 'MEDIUM') return 'MEDIUM';
+  return 'LOW';
+}
+
+function mapRecommendation(r: RecommendationResponse): Recommendation {
+  return {
+    id: r._id,
+    priority: mapPriority(r.priority),
+    type: mapWorkoutType(r.type),
+    title: r.title,
+    description: r.description,
+    details: r.description,
+    durationMin: 0,
+  };
+}
+
+function isSameDay(dateStr: string): boolean {
+  const d = new Date(dateStr);
+  const now = new Date();
+  return (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  );
+}
+
+function mapPlanDay(day: WeeklyPlanResponse['days'][number]): PlanDay {
+  const d = new Date(day.date);
+  const focusCapitalized = day.focus.charAt(0).toUpperCase() + day.focus.slice(1);
+  return {
+    day: DAY_ABBRS[d.getDay()] ?? 'MON',
+    type: mapWorkoutType(day.focus),
+    title: focusCapitalized,
+    durationMin: day.plannedDurationMin,
+    rpe: day.plannedIntensity,
+    completed: day.completed,
+    isToday: isSameDay(day.date),
+  };
+}
 
 // ── Helpers ───────────────────────────────────────────────
 
@@ -220,9 +282,9 @@ function WorkoutIcon({ type, size = 22, color }: { type: WorkoutType; size?: num
 
 // ── Daily Brief ───────────────────────────────────────────
 
-function DailyBrief() {
+function DailyBrief({ score, label }: { score: number; label: string }) {
   const pulse = useRef(new Animated.Value(1)).current;
-  const brief = getBriefMessage(RECOVERY_SCORE);
+  const brief = getBriefMessage(score);
 
   useEffect(() => {
     Animated.loop(
@@ -276,10 +338,10 @@ function DailyBrief() {
           <Text style={[typography.label, { color: colors.accent }]}>DAILY BRIEF</Text>
           <View style={briefStyles.scoreBadge}>
             <Text style={[typography.caption, { color: colors.accent, fontSize: 11 }]}>
-              {READINESS_LABEL}
+              {label}
             </Text>
             <Text style={[typography.bodyBold, { color: colors.text, marginLeft: 6 }]}>
-              {RECOVERY_SCORE}
+              {score}
             </Text>
           </View>
         </View>
@@ -403,7 +465,9 @@ function RecommendationCard({
             <Circle cx={12} cy={12} r={9} stroke={colors.muted} strokeWidth={2} />
             <Path d="M12 8v4l2.5 2.5" stroke={colors.muted} strokeWidth={2} strokeLinecap="round" />
           </Svg>
-          <Text style={[typography.caption, { marginLeft: 6 }]}>{rec.durationMin} min</Text>
+          <Text style={[typography.caption, { marginLeft: 6 }]}>
+            {rec.durationMin > 0 ? `${rec.durationMin} min` : '—'}
+          </Text>
         </View>
         <Text style={[typography.caption, { color: colors.accent }]}>
           {expanded ? 'Tap to collapse' : 'Tap for details'}
@@ -485,8 +549,8 @@ const recStyles = StyleSheet.create({
 
 // ── Weekly Plan ───────────────────────────────────────────
 
-function WeeklyPlan() {
-  const [plan, setPlan] = useState<PlanDay[]>(WEEKLY_PLAN);
+function WeeklyPlan({ initialPlan }: { initialPlan: PlanDay[] }) {
+  const [plan, setPlan] = useState<PlanDay[]>(initialPlan);
 
   const toggleComplete = (idx: number) => {
     setPlan((prev) =>
@@ -741,11 +805,63 @@ const insightStyles = StyleSheet.create({
 
 export default function CoachScreen() {
   const insets = useSafeAreaInsets();
-  const [recs, setRecs] = useState<Recommendation[]>(INITIAL_RECS);
+  const [loading, setLoading] = useState(true);
+  const [readinessScore, setReadinessScore] = useState(MOCK_RECOVERY_SCORE);
+  const [readinessLabel, setReadinessLabel] = useState(MOCK_READINESS_LABEL);
+  const [recs, setRecs] = useState<Recommendation[]>(MOCK_RECS);
+  const [weekPlan, setWeekPlan] = useState<PlanDay[]>(MOCK_WEEKLY_PLAN);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadData() {
+      const [recsResult, planResult, readinessResult] = await Promise.allSettled([
+        getRecommendations(),
+        getWeeklyPlan(),
+        getReadiness(),
+      ]);
+      if (cancelled) return;
+
+      if (recsResult.status === 'fulfilled') {
+        const active = recsResult.value.filter((r) => !r.dismissed);
+        if (active.length > 0) {
+          setRecs(active.map(mapRecommendation));
+        }
+      } else {
+        console.warn('Failed to fetch recommendations');
+      }
+
+      if (planResult.status === 'fulfilled' && planResult.value?.days?.length) {
+        setWeekPlan(planResult.value.days.map(mapPlanDay));
+      } else if (planResult.status === 'rejected') {
+        console.warn('Failed to fetch weekly plan');
+      }
+
+      if (readinessResult.status === 'fulfilled' && readinessResult.value) {
+        setReadinessScore(readinessResult.value.score);
+        setReadinessLabel(readinessResult.value.label.toUpperCase());
+      } else if (readinessResult.status === 'rejected') {
+        console.warn('Failed to fetch readiness');
+      }
+
+      if (!cancelled) setLoading(false);
+    }
+    loadData();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleDismiss = (id: string) => {
     setRecs((prev) => prev.filter((r) => r.id !== id));
   };
+
+  if (loading) {
+    return (
+      <View style={[styles.screen, styles.center]}>
+        <ActivityIndicator size={36} color={colors.accent} />
+      </View>
+    );
+  }
 
   return (
     <ScrollView
@@ -760,7 +876,7 @@ export default function CoachScreen() {
 
       {/* Daily Brief */}
       <View style={styles.section}>
-        <DailyBrief />
+        <DailyBrief score={readinessScore} label={readinessLabel} />
       </View>
 
       {/* Recommendations */}
@@ -790,7 +906,7 @@ export default function CoachScreen() {
           <Text style={typography.label}>WEEKLY PLAN</Text>
           <Text style={[typography.caption, { color: colors.muted }]}>Tap to complete</Text>
         </View>
-        <WeeklyPlan />
+        <WeeklyPlan initialPlan={weekPlan} />
       </View>
 
       {/* AI Insight */}
@@ -803,6 +919,7 @@ export default function CoachScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
+  center: { alignItems: 'center', justifyContent: 'center' },
   content: { padding: 20, paddingBottom: 40 },
   header: { marginBottom: 20 },
   section: { marginTop: 24 },

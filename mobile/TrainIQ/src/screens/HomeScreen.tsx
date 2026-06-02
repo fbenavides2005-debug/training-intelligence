@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,13 +8,13 @@ import ReadinessRing from '../components/ReadinessRing';
 import MetricCard from '../components/MetricCard';
 import CoachCard from '../components/CoachCard';
 import WeeklyLoadChart from '../components/WeeklyLoadChart';
+import { getUserProfile, getReadiness } from '../services/apiService';
 import type { RecoveryMetric, CoachRecommendation, WeeklyLoad } from '../types';
 
-// ── Mock Data ─────────────────────────────────────────────
+// ── Mock Data (fallback) ─────────────────────────────────
 
-const FIRST_NAME = 'Felipe';
-const READINESS_SCORE = 80;
-const READINESS_LABEL = 'GOOD';
+const MOCK_READINESS_SCORE = 80;
+const MOCK_READINESS_LABEL = 'GOOD';
 
 const recoveryMetrics: RecoveryMetric[] = [
   { label: 'Sleep', value: '7.4', unit: 'hrs', trend: 'up', color: colors.accent2 },
@@ -51,6 +51,31 @@ function getGreeting(): string {
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const [userName, setUserName] = useState('Athlete');
+  const [readinessScore, setReadinessScore] = useState(MOCK_READINESS_SCORE);
+  const [readinessLabel, setReadinessLabel] = useState(MOCK_READINESS_LABEL);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadData() {
+      const [profileResult, readinessResult] = await Promise.allSettled([
+        getUserProfile(),
+        getReadiness(),
+      ]);
+      if (cancelled) return;
+      if (profileResult.status === 'fulfilled' && profileResult.value?.profile?.firstName) {
+        setUserName(profileResult.value.profile.firstName);
+      }
+      if (readinessResult.status === 'fulfilled' && readinessResult.value) {
+        setReadinessScore(readinessResult.value.score);
+        setReadinessLabel(readinessResult.value.label.toUpperCase());
+      }
+    }
+    loadData();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <ScrollView
@@ -62,16 +87,16 @@ export default function HomeScreen() {
       <View style={styles.header}>
         <View>
           <Text style={[typography.caption, styles.greeting]}>{getGreeting()}</Text>
-          <Text style={typography.h1}>Hey, {FIRST_NAME}</Text>
+          <Text style={typography.h1}>Hey, {userName}</Text>
         </View>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{FIRST_NAME.charAt(0).toUpperCase()}</Text>
+          <Text style={styles.avatarText}>{userName.charAt(0).toUpperCase()}</Text>
         </View>
       </View>
 
       {/* Readiness Ring */}
       <View style={styles.section}>
-        <ReadinessRing score={READINESS_SCORE} maxScore={100} />
+        <ReadinessRing score={readinessScore} maxScore={100} />
       </View>
 
       {/* Recovery Snapshot */}
@@ -103,7 +128,7 @@ export default function HomeScreen() {
         style={styles.insightStrip}
       >
         <Text style={[typography.caption, { color: colors.accent, marginBottom: 4 }]}>
-          {READINESS_LABEL}
+          {readinessLabel}
         </Text>
         <Text style={[typography.body, { color: colors.text }]}>
           Your training load this week is 12% below target. Consider adding a tempo session
