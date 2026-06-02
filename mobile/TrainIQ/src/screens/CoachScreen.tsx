@@ -1,148 +1,917 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Animated } from 'react-native';
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  Animated,
+  Easing,
+  ActivityIndicator,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Path, Circle } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
+import { getRecommendations, getWeeklyPlan, getReadiness } from '../services/apiService';
+import type { RecommendationResponse, WeeklyPlanResponse } from '../types';
 
-const mockRecommendations = [
-  { id: '1', priority: 'HIGH', type: 'Run', title: 'Zone 2 Easy Run', description: 'Your HRV is trending up. A 45-min easy aerobic run will build base fitness.', duration: '45 min', detail: 'Keep HR below 145bpm. Focus on nasal breathing. Good day for a long easy effort.' },
-  { id: '2', priority: 'MEDIUM', type: 'Strength', title: 'Upper Body Strength', description: 'Low strain from yesterday makes today ideal for pushing upper body.', duration: '40 min', detail: '3x8 bench press, 3x10 rows, 3x12 shoulder press. RPE 7/10.' },
-  { id: '3', priority: 'LOW', type: 'Recovery', title: 'Mobility & Stretching', description: 'Add a 15-min mobility session to improve your readiness for tomorrow.', duration: '15 min', detail: 'Focus on hip flexors, thoracic spine, and hamstrings.' },
+// ── Design Tokens ─────────────────────────────────────────
+
+const WARNING = '#F5A623';
+
+// ── Types ─────────────────────────────────────────────────
+
+type Priority = 'HIGH' | 'MEDIUM' | 'LOW';
+type WorkoutType = 'run' | 'strength' | 'rest' | 'cycle' | 'tempo' | 'easy' | 'intervals';
+
+interface Recommendation {
+  id: string;
+  priority: Priority;
+  type: WorkoutType;
+  title: string;
+  description: string;
+  details: string;
+  durationMin: number;
+}
+
+interface PlanDay {
+  day: string;
+  type: WorkoutType;
+  title: string;
+  durationMin: number;
+  rpe: number; // 0-10
+  completed: boolean;
+  isToday: boolean;
+}
+
+// ── Mock Data (fallback) ─────────────────────────────────
+
+const MOCK_RECOVERY_SCORE = 82;
+const MOCK_READINESS_LABEL = 'PEAK';
+
+const MOCK_RECS: Recommendation[] = [
+  {
+    id: 'r1',
+    priority: 'HIGH',
+    type: 'intervals',
+    title: 'Interval Training Session',
+    description: 'Your recovery is excellent. Perfect day for high-intensity intervals.',
+    details:
+      'Warm up 10 min easy jog. 6x400m at 5K pace with 90s active recovery between reps. Cool down 10 min easy. Focus on smooth turnover and controlled breathing.',
+    durationMin: 45,
+  },
+  {
+    id: 'r2',
+    priority: 'MEDIUM',
+    type: 'strength',
+    title: 'Lower Body Strength',
+    description: 'Build on recent aerobic work with compound strength movements.',
+    details:
+      'Back Squat 4x6 @ 75%, Romanian Deadlift 3x8, Walking Lunges 3x10 each leg, Plank 3x45s. Rest 2 min between sets.',
+    durationMin: 60,
+  },
+  {
+    id: 'r3',
+    priority: 'LOW',
+    type: 'rest',
+    title: 'Active Recovery',
+    description: 'Light movement to promote blood flow and speed recovery.',
+    details:
+      '20 min easy walk or yoga flow, followed by 10 min of targeted stretching (hips, hamstrings, calves). Focus on breathing deeply.',
+    durationMin: 30,
+  },
 ];
 
-const weekPlan = [
-  { day: 'MON', type: 'Run', duration: '45m', rpe: 4, done: true },
-  { day: 'TUE', type: 'Strength', duration: '40m', rpe: 7, done: true },
-  { day: 'WED', type: 'REST', duration: '', rpe: 0, done: false },
-  { day: 'THU', type: 'Run', duration: '60m', rpe: 6, done: false, isToday: true },
-  { day: 'FRI', type: 'HIIT', duration: '30m', rpe: 8, done: false },
-  { day: 'SAT', type: 'Cycle', duration: '90m', rpe: 5, done: false },
-  { day: 'SUN', type: 'REST', duration: '', rpe: 0, done: false },
+const MOCK_WEEKLY_PLAN: PlanDay[] = [
+  { day: 'MON', type: 'run', title: 'Long Run', durationMin: 60, rpe: 6, completed: true, isToday: false },
+  { day: 'TUE', type: 'strength', title: 'Upper Body', durationMin: 45, rpe: 7, completed: true, isToday: false },
+  { day: 'WED', type: 'rest', title: 'Rest Day', durationMin: 0, rpe: 0, completed: true, isToday: false },
+  { day: 'THU', type: 'intervals', title: 'Intervals', durationMin: 50, rpe: 9, completed: false, isToday: true },
+  { day: 'FRI', type: 'easy', title: 'Easy Run', durationMin: 30, rpe: 3, completed: false, isToday: false },
+  { day: 'SAT', type: 'tempo', title: 'Tempo Run', durationMin: 45, rpe: 7, completed: false, isToday: false },
+  { day: 'SUN', type: 'rest', title: 'Rest Day', durationMin: 0, rpe: 0, completed: false, isToday: false },
 ];
 
-const insights = [
-  'Your HRV has improved 12% this week — keep the momentum.',
-  'Best training window today: 10am–12pm based on your patterns.',
-  'You\'ve hit your weekly load target 3 weeks in a row. 🔥',
-  'Sleep consistency is your #1 recovery lever right now.',
-  'Zone 2 training builds the aerobic base elite athletes rely on.',
-  'Recovery score above 80 — green light for intensity today.',
+const INSIGHTS = [
+  'Drink 16oz of water within 30 min of waking to jump-start hydration.',
+  'Morning sunlight exposure regulates circadian rhythm and improves sleep quality.',
+  'Your HRV is trending up — the autonomic nervous system is recovering well.',
+  'Include one rest day for every three training days to prevent overtraining.',
+  'Protein timing within two hours post-workout maximizes muscle protein synthesis.',
+  'Zone 2 training builds your aerobic base without compromising recovery.',
 ];
 
-export default function CoachScreen() {
-  const insets = useSafeAreaInsets();
-  const [recs, setRecs] = useState(mockRecommendations);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [plan, setPlan] = useState(weekPlan);
-  const [insightIndex, setInsightIndex] = useState(0);
-  const fadeAnim = useRef(new Animated.Value(1)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+// ── API → Local Type Mappers ─────────────────────────────
+
+const DAY_ABBRS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+
+function mapWorkoutType(type: string): WorkoutType {
+  const t = type.toLowerCase();
+  if (t === 'run' || t === 'running') return 'run';
+  if (t === 'strength' || t === 'weights' || t === 'lifting') return 'strength';
+  if (t === 'rest' || t === 'recovery' || t === 'active_recovery') return 'rest';
+  if (t === 'cycle' || t === 'cycling' || t === 'bike') return 'cycle';
+  if (t === 'tempo') return 'tempo';
+  if (t === 'easy') return 'easy';
+  if (t === 'intervals' || t === 'hiit' || t === 'speed') return 'intervals';
+  return 'easy';
+}
+
+function mapPriority(p: string): Priority {
+  const upper = p.toUpperCase();
+  if (upper === 'HIGH') return 'HIGH';
+  if (upper === 'MEDIUM') return 'MEDIUM';
+  return 'LOW';
+}
+
+function mapRecommendation(r: RecommendationResponse): Recommendation {
+  return {
+    id: r._id,
+    priority: mapPriority(r.priority),
+    type: mapWorkoutType(r.type),
+    title: r.title,
+    description: r.description,
+    details: r.description,
+    durationMin: 0,
+  };
+}
+
+function isSameDay(dateStr: string): boolean {
+  const d = new Date(dateStr);
+  const now = new Date();
+  return (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  );
+}
+
+function mapPlanDay(day: WeeklyPlanResponse['days'][number]): PlanDay {
+  const d = new Date(day.date);
+  const focusCapitalized = day.focus.charAt(0).toUpperCase() + day.focus.slice(1);
+  return {
+    day: DAY_ABBRS[d.getDay()] ?? 'MON',
+    type: mapWorkoutType(day.focus),
+    title: focusCapitalized,
+    durationMin: day.plannedDurationMin,
+    rpe: day.plannedIntensity,
+    completed: day.completed,
+    isToday: isSameDay(day.date),
+  };
+}
+
+// ── Helpers ───────────────────────────────────────────────
+
+function getBriefMessage(score: number): { title: string; body: string } {
+  if (score >= 80) {
+    return {
+      title: "You're primed to train hard today",
+      body:
+        "Your readiness is peak. Nervous system, sleep, and strain all align. Consider a high-intensity session — this is the day to push your limits.",
+    };
+  }
+  if (score >= 60) {
+    return {
+      title: 'Ready for a balanced effort',
+      body:
+        'Solid readiness across the board. A moderate session (tempo or threshold work) will drive fitness without spiking fatigue.',
+    };
+  }
+  if (score >= 40) {
+    return {
+      title: 'Easy day recommended',
+      body:
+        'Readiness is below baseline. Zone 2 cardio, mobility, or a light strength circuit will keep momentum without digging a hole.',
+    };
+  }
+  return {
+    title: 'Prioritize recovery',
+    body:
+      'Your system needs rest. Sleep, hydration, and gentle movement only. Pushing today will cost you tomorrow.',
+  };
+}
+
+function getPriorityStyle(p: Priority) {
+  if (p === 'HIGH') return { color: colors.danger, bg: 'rgba(239,68,68,0.15)' };
+  if (p === 'MEDIUM') return { color: WARNING, bg: 'rgba(245,166,35,0.15)' };
+  return { color: colors.accent, bg: 'rgba(200,241,53,0.15)' };
+}
+
+// ── Workout Icon ──────────────────────────────────────────
+
+function WorkoutIcon({ type, size = 22, color }: { type: WorkoutType; size?: number; color?: string }) {
+  const c = color ?? colors.accent;
+  switch (type) {
+    case 'run':
+    case 'easy':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <Circle cx={14} cy={4} r={2} stroke={c} strokeWidth={2} />
+          <Path
+            d="M7 10l3-2 3 2 2 4 3 1M9 21l3-6 4 2"
+            stroke={c}
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </Svg>
+      );
+    case 'strength':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M6 4v16M18 4v16M2 8h4M18 8h4M2 16h4M18 16h4M6 12h12"
+            stroke={c}
+            strokeWidth={2}
+            strokeLinecap="round"
+          />
+        </Svg>
+      );
+    case 'rest':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"
+            stroke={c}
+            strokeWidth={2}
+            strokeLinejoin="round"
+          />
+        </Svg>
+      );
+    case 'cycle':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <Circle cx={6} cy={17} r={4} stroke={c} strokeWidth={2} />
+          <Circle cx={18} cy={17} r={4} stroke={c} strokeWidth={2} />
+          <Path
+            d="M6 17l4-10h5l3 10"
+            stroke={c}
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </Svg>
+      );
+    case 'tempo':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"
+            stroke={c}
+            strokeWidth={2}
+            strokeLinejoin="round"
+          />
+        </Svg>
+      );
+    case 'intervals':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M3 12h3l2-7 4 14 2-7h3"
+            stroke={c}
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </Svg>
+      );
+  }
+}
+
+// ── Daily Brief ───────────────────────────────────────────
+
+function DailyBrief({ score, label }: { score: number; label: string }) {
+  const pulse = useRef(new Animated.Value(1)).current;
+  const brief = getBriefMessage(score);
 
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.15, duration: 1000, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
-      ])
+        Animated.timing(pulse, {
+          toValue: 1.3,
+          duration: 1400,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 1400,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
     ).start();
-  }, []);
+  }, [pulse]);
+
+  return (
+    <LinearGradient
+      colors={['rgba(200,241,53,0.12)', 'rgba(91,141,239,0.06)']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={briefStyles.card}
+    >
+      <View style={briefStyles.header}>
+        <View style={briefStyles.iconContainer}>
+          <Animated.View
+            style={[
+              briefStyles.pulse,
+              { transform: [{ scale: pulse }], opacity: pulse.interpolate({ inputRange: [1, 1.3], outputRange: [0.6, 0] }) },
+            ]}
+          />
+          <View style={briefStyles.iconInner}>
+            <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+              <Circle cx={12} cy={12} r={9} stroke={colors.accent} strokeWidth={2} />
+              <Path
+                d="M8 12l2.5 2.5L16 9"
+                stroke={colors.accent}
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </Svg>
+          </View>
+        </View>
+
+        <View style={briefStyles.badgeRow}>
+          <Text style={[typography.label, { color: colors.accent }]}>DAILY BRIEF</Text>
+          <View style={briefStyles.scoreBadge}>
+            <Text style={[typography.caption, { color: colors.accent, fontSize: 11 }]}>
+              {label}
+            </Text>
+            <Text style={[typography.bodyBold, { color: colors.text, marginLeft: 6 }]}>
+              {score}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <Text style={[typography.h2, { fontSize: 20, marginTop: 16, marginBottom: 10 }]}>
+        {brief.title}
+      </Text>
+      <Text style={[typography.body, { color: colors.muted, lineHeight: 22 }]}>
+        {brief.body}
+      </Text>
+    </LinearGradient>
+  );
+}
+
+const briefStyles = StyleSheet.create({
+  card: {
+    borderRadius: 24,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  iconContainer: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pulse: {
+    position: 'absolute',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.accent,
+  },
+  iconInner: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(200,241,53,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  scoreBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(200,241,53,0.12)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(200,241,53,0.20)',
+  },
+});
+
+// ── Recommendation Card ───────────────────────────────────
+
+function RecommendationCard({
+  rec,
+  onDismiss,
+}: {
+  rec: Recommendation;
+  onDismiss: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const prio = getPriorityStyle(rec.priority);
+
+  return (
+    <TouchableOpacity
+      style={recStyles.card}
+      onPress={() => setExpanded((e) => !e)}
+      activeOpacity={0.85}
+    >
+      <View style={recStyles.topRow}>
+        <View style={[recStyles.priorityBadge, { backgroundColor: prio.bg }]}>
+          <Text style={[typography.caption, { color: prio.color, fontSize: 10, fontFamily: 'DMSans_700Bold' }]}>
+            {rec.priority}
+          </Text>
+        </View>
+        <TouchableOpacity
+          onPress={() => onDismiss(rec.id)}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={recStyles.dismiss}
+        >
+          <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+            <Path
+              d="M6 6l12 12M18 6L6 18"
+              stroke={colors.muted}
+              strokeWidth={2.5}
+              strokeLinecap="round"
+            />
+          </Svg>
+        </TouchableOpacity>
+      </View>
+
+      <View style={recStyles.body}>
+        <View style={recStyles.iconWrap}>
+          <WorkoutIcon type={rec.type} size={22} color={prio.color} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[typography.h3, { marginBottom: 6 }]}>{rec.title}</Text>
+          <Text style={[typography.body, { color: colors.muted, lineHeight: 20 }]}>
+            {rec.description}
+          </Text>
+        </View>
+      </View>
+
+      <View style={recStyles.footer}>
+        <View style={recStyles.duration}>
+          <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
+            <Circle cx={12} cy={12} r={9} stroke={colors.muted} strokeWidth={2} />
+            <Path d="M12 8v4l2.5 2.5" stroke={colors.muted} strokeWidth={2} strokeLinecap="round" />
+          </Svg>
+          <Text style={[typography.caption, { marginLeft: 6 }]}>
+            {rec.durationMin > 0 ? `${rec.durationMin} min` : '—'}
+          </Text>
+        </View>
+        <Text style={[typography.caption, { color: colors.accent }]}>
+          {expanded ? 'Tap to collapse' : 'Tap for details'}
+        </Text>
+      </View>
+
+      {expanded && (
+        <View style={recStyles.details}>
+          <Text style={[typography.caption, { marginBottom: 8, color: colors.accent2, letterSpacing: 1.2 }]}>
+            WORKOUT DETAILS
+          </Text>
+          <Text style={[typography.body, { color: colors.text, lineHeight: 22 }]}>
+            {rec.details}
+          </Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+const recStyles = StyleSheet.create({
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  topRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  priorityBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  dismiss: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(240,240,248,0.04)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  body: {
+    flexDirection: 'row',
+    gap: 14,
+    alignItems: 'flex-start',
+  },
+  iconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(200,241,53,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+  },
+  duration: { flexDirection: 'row', alignItems: 'center' },
+  details: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+  },
+});
+
+// ── Weekly Plan ───────────────────────────────────────────
+
+function WeeklyPlan({ initialPlan }: { initialPlan: PlanDay[] }) {
+  const [plan, setPlan] = useState<PlanDay[]>(initialPlan);
+
+  const toggleComplete = (idx: number) => {
+    setPlan((prev) =>
+      prev.map((d, i) => (i === idx ? { ...d, completed: !d.completed } : d)),
+    );
+  };
+
+  const getRpeColor = (rpe: number) => {
+    if (rpe === 0) return colors.muted;
+    if (rpe >= 8) return colors.danger;
+    if (rpe >= 5) return WARNING;
+    return colors.accent;
+  };
+
+  return (
+    <View style={planStyles.container}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={planStyles.scroll}
+      >
+        {plan.map((day, idx) => {
+          const isRest = day.type === 'rest';
+          const rpeColor = getRpeColor(day.rpe);
+
+          return (
+            <TouchableOpacity
+              key={day.day}
+              onPress={() => toggleComplete(idx)}
+              activeOpacity={0.7}
+              style={[
+                planStyles.dayCard,
+                day.isToday && planStyles.todayCard,
+                isRest && planStyles.restCard,
+              ]}
+            >
+              <Text
+                style={[
+                  typography.caption,
+                  planStyles.dayLabel,
+                  day.isToday && { color: colors.accent, fontFamily: 'DMSans_700Bold' },
+                ]}
+              >
+                {day.day}
+              </Text>
+
+              <View
+                style={[
+                  planStyles.iconCircle,
+                  isRest && { backgroundColor: 'rgba(240,240,248,0.04)' },
+                  day.isToday && !isRest && { backgroundColor: 'rgba(200,241,53,0.15)' },
+                ]}
+              >
+                <WorkoutIcon
+                  type={day.type}
+                  size={18}
+                  color={isRest ? colors.muted : day.isToday ? colors.accent : colors.text}
+                />
+              </View>
+
+              <Text
+                style={[
+                  typography.caption,
+                  planStyles.durationLabel,
+                  isRest && { color: colors.muted },
+                ]}
+              >
+                {isRest ? 'REST' : `${day.durationMin}m`}
+              </Text>
+
+              {!isRest && (
+                <View style={[planStyles.rpePill, { backgroundColor: `${rpeColor}22`, borderColor: rpeColor }]}>
+                  <Text style={[typography.caption, { fontSize: 9, color: rpeColor, fontFamily: 'DMSans_700Bold' }]}>
+                    RPE {day.rpe}
+                  </Text>
+                </View>
+              )}
+
+              <View
+                style={[
+                  planStyles.check,
+                  day.completed && { backgroundColor: colors.accent, borderColor: colors.accent },
+                ]}
+              >
+                {day.completed && (
+                  <Svg width={10} height={10} viewBox="0 0 24 24" fill="none">
+                    <Path
+                      d="M5 12l5 5L20 7"
+                      stroke={colors.background}
+                      strokeWidth={4}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </Svg>
+                )}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
+const planStyles = StyleSheet.create({
+  container: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    paddingVertical: 18,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  scroll: { paddingHorizontal: 12, gap: 8 },
+  dayCard: {
+    width: 68,
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  todayCard: {
+    backgroundColor: 'rgba(200,241,53,0.06)',
+    borderColor: 'rgba(200,241,53,0.25)',
+  },
+  restCard: { opacity: 0.85 },
+  dayLabel: { fontSize: 11, letterSpacing: 1.2, marginBottom: 10 },
+  iconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(240,240,248,0.04)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  durationLabel: {
+    fontSize: 11,
+    color: colors.text,
+    marginBottom: 6,
+    fontFamily: 'DMSans_500Medium',
+  },
+  rpePill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  check: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: colors.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
+
+// ── AI Insight Strip ──────────────────────────────────────
+
+function InsightStrip() {
+  const [idx, setIdx] = useState(0);
+  const fade = useRef(new Animated.Value(1)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const interval = setInterval(() => {
-      Animated.timing(fadeAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
-        setInsightIndex(i => (i + 1) % insights.length);
-        Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+      Animated.parallel([
+        Animated.timing(fade, { toValue: 0, duration: 400, useNativeDriver: true }),
+        Animated.timing(translateY, { toValue: -8, duration: 400, useNativeDriver: true }),
+      ]).start(() => {
+        setIdx((i) => (i + 1) % INSIGHTS.length);
+        translateY.setValue(8);
+        Animated.parallel([
+          Animated.timing(fade, { toValue: 1, duration: 400, useNativeDriver: true }),
+          Animated.timing(translateY, { toValue: 0, duration: 400, useNativeDriver: true }),
+        ]).start();
       });
     }, 4500);
     return () => clearInterval(interval);
-  }, []);
-
-  const priorityColor = (p: string) => p === 'HIGH' ? colors.danger : p === 'MEDIUM' ? '#F5A623' : colors.accent;
-  const rpeColor = (rpe: number) => rpe >= 8 ? colors.danger : rpe >= 5 ? '#F5A623' : colors.accent;
+  }, [fade, translateY]);
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: 40 }}>
-      <Text style={[typography.h1, { marginBottom: 20, paddingHorizontal: 20 }]}>AI Coach</Text>
+    <LinearGradient
+      colors={['rgba(91,141,239,0.10)', 'rgba(200,241,53,0.06)']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 0 }}
+      style={insightStyles.strip}
+    >
+      <View style={insightStyles.header}>
+        <View style={insightStyles.dot} />
+        <Text style={[typography.caption, { color: colors.accent2, fontSize: 11, letterSpacing: 1.5 }]}>
+          AI INSIGHT
+        </Text>
+      </View>
+      <Animated.Text
+        style={[
+          typography.body,
+          {
+            color: colors.text,
+            lineHeight: 22,
+            marginTop: 10,
+            opacity: fade,
+            transform: [{ translateY }],
+          },
+        ]}
+      >
+        {INSIGHTS[idx]}
+      </Animated.Text>
+      <View style={insightStyles.dots}>
+        {INSIGHTS.map((_, i) => (
+          <View
+            key={i}
+            style={[
+              insightStyles.indicator,
+              i === idx && { backgroundColor: colors.accent, width: 14 },
+            ]}
+          />
+        ))}
+      </View>
+    </LinearGradient>
+  );
+}
+
+const insightStyles = StyleSheet.create({
+  strip: {
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.accent2,
+  },
+  dots: { flexDirection: 'row', gap: 4, marginTop: 14 },
+  indicator: {
+    width: 6,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: 'rgba(240,240,248,0.15)',
+  },
+});
+
+// ── Main Screen ───────────────────────────────────────────
+
+export default function CoachScreen() {
+  const insets = useSafeAreaInsets();
+  const [loading, setLoading] = useState(true);
+  const [readinessScore, setReadinessScore] = useState(MOCK_RECOVERY_SCORE);
+  const [readinessLabel, setReadinessLabel] = useState(MOCK_READINESS_LABEL);
+  const [recs, setRecs] = useState<Recommendation[]>(MOCK_RECS);
+  const [weekPlan, setWeekPlan] = useState<PlanDay[]>(MOCK_WEEKLY_PLAN);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadData() {
+      const [recsResult, planResult, readinessResult] = await Promise.allSettled([
+        getRecommendations(),
+        getWeeklyPlan(),
+        getReadiness(),
+      ]);
+      if (cancelled) return;
+
+      if (recsResult.status === 'fulfilled') {
+        const active = recsResult.value.filter((r) => !r.dismissed);
+        if (active.length > 0) {
+          setRecs(active.map(mapRecommendation));
+        }
+      } else {
+        console.warn('Failed to fetch recommendations');
+      }
+
+      if (planResult.status === 'fulfilled' && planResult.value?.days?.length) {
+        setWeekPlan(planResult.value.days.map(mapPlanDay));
+      } else if (planResult.status === 'rejected') {
+        console.warn('Failed to fetch weekly plan');
+      }
+
+      if (readinessResult.status === 'fulfilled' && readinessResult.value) {
+        setReadinessScore(readinessResult.value.score);
+        setReadinessLabel(readinessResult.value.label.toUpperCase());
+      } else if (readinessResult.status === 'rejected') {
+        console.warn('Failed to fetch readiness');
+      }
+
+      if (!cancelled) setLoading(false);
+    }
+    loadData();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleDismiss = (id: string) => {
+    setRecs((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  if (loading) {
+    return (
+      <View style={[styles.screen, styles.center]}>
+        <ActivityIndicator size={36} color={colors.accent} />
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView
+      style={[styles.screen, { paddingTop: insets.top + 16 }]}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.header}>
+        <Text style={[typography.caption, { marginBottom: 4 }]}>YOUR AI COACH</Text>
+        <Text style={typography.h1}>Today's Plan</Text>
+      </View>
 
       {/* Daily Brief */}
-      <View style={[styles.card, styles.briefCard, { marginHorizontal: 20 }]}>
-        <View style={styles.briefHeader}>
-          <Animated.View style={[styles.pulseIcon, { transform: [{ scale: pulseAnim }] }]}>
-            <Text style={{ fontSize: 18 }}>✦</Text>
-          </Animated.View>
-          <Text style={styles.briefLabel}>DAILY BRIEF</Text>
-          <View style={styles.badge}><Text style={styles.badgeText}>PEAK 82</Text></View>
-        </View>
-        <Text style={styles.briefTitle}>You're primed to train hard today</Text>
-        <Text style={styles.briefBody}>HRV trending up, sleep quality excellent. This is a green light day — push intensity with confidence.</Text>
+      <View style={styles.section}>
+        <DailyBrief score={readinessScore} label={readinessLabel} />
       </View>
 
       {/* Recommendations */}
-      <View style={{ marginTop: 28, paddingHorizontal: 20 }}>
-        <Text style={styles.sectionTitle}>RECOMMENDATIONS <Text style={styles.sectionCount}>{recs.length} active</Text></Text>
-        {recs.length === 0 && (
-          <View style={[styles.card, styles.emptyCard]}>
-            <Text style={styles.emptyText}>All caught up! Check back tomorrow.</Text>
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={typography.label}>RECOMMENDATIONS</Text>
+          <Text style={[typography.caption, { color: colors.accent }]}>
+            {recs.length} active
+          </Text>
+        </View>
+        {recs.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={[typography.body, { color: colors.muted, textAlign: 'center' }]}>
+              All caught up.{'\n'}New recommendations arrive after your next sync.
+            </Text>
           </View>
+        ) : (
+          recs.map((rec) => (
+            <RecommendationCard key={rec.id} rec={rec} onDismiss={handleDismiss} />
+          ))
         )}
-        {recs.map(rec => (
-          <View key={rec.id} style={styles.card}>
-            <View style={styles.recHeader}>
-              <View style={[styles.priorityBadge, { backgroundColor: priorityColor(rec.priority) + '22', borderColor: priorityColor(rec.priority) }]}>
-                <Text style={[styles.priorityText, { color: priorityColor(rec.priority) }]}>{rec.priority}</Text>
-              </View>
-              <View style={styles.durationPill}>
-                <Text style={styles.durationText}>{rec.duration}</Text>
-              </View>
-              <TouchableOpacity onPress={() => setRecs(r => r.filter(x => x.id !== rec.id))} style={styles.dismissBtn}>
-                <Text style={styles.dismissText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity onPress={() => setExpanded(expanded === rec.id ? null : rec.id)}>
-              <Text style={styles.recTitle}>{rec.title}</Text>
-              <Text style={styles.recDesc}>{rec.description}</Text>
-              {expanded === rec.id && (
-                <View style={styles.expandedDetail}>
-                  <Text style={styles.detailText}>{rec.detail}</Text>
-                </View>
-              )}
-              <Text style={styles.expandHint}>{expanded === rec.id ? '▲ Less' : '▼ Details'}</Text>
-            </TouchableOpacity>
-          </View>
-        ))}
       </View>
 
       {/* Weekly Plan */}
-      <View style={{ marginTop: 28, paddingHorizontal: 20 }}>
-        <Text style={styles.sectionTitle}>WEEKLY PLAN</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
-          {plan.map((day, i) => (
-            <TouchableOpacity key={i} onPress={() => setPlan(p => p.map((d, j) => j === i ? { ...d, done: !d.done } : d))}>
-              <View style={[styles.dayCard, day.isToday && styles.dayCardToday, day.done && styles.dayCardDone]}>
-                <Text style={[styles.dayLabel, day.isToday && { color: colors.accent }]}>{day.day}</Text>
-                <Text style={styles.dayType}>{day.type}</Text>
-                {day.duration ? <Text style={styles.dayDuration}>{day.duration}</Text> : null}
-                {day.rpe > 0 && (
-                  <View style={[styles.rpePill, { backgroundColor: rpeColor(day.rpe) + '22' }]}>
-                    <Text style={[styles.rpeText, { color: rpeColor(day.rpe) }]}>RPE {day.rpe}</Text>
-                  </View>
-                )}
-                <Text style={styles.checkmark}>{day.done ? '✓' : '○'}</Text>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={typography.label}>WEEKLY PLAN</Text>
+          <Text style={[typography.caption, { color: colors.muted }]}>Tap to complete</Text>
+        </View>
+        <WeeklyPlan initialPlan={weekPlan} />
       </View>
 
       {/* AI Insight */}
-      <View style={[styles.card, styles.insightCard, { marginHorizontal: 20, marginTop: 28 }]}>
-        <Text style={styles.insightLabel}>💡 INSIGHT</Text>
-        <Animated.Text style={[styles.insightText, { opacity: fadeAnim }]}>{insights[insightIndex]}</Animated.Text>
-        <View style={styles.dots}>
-          {insights.map((_, i) => (
-            <View key={i} style={[styles.dot, i === insightIndex && styles.dotActive]} />
-          ))}
-        </View>
+      <View style={styles.section}>
+        <InsightStrip />
       </View>
     </ScrollView>
   );
@@ -150,44 +919,21 @@ export default function CoachScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  card: { backgroundColor: colors.surface, borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: 'rgba(240,240,248,0.08)' },
-  briefCard: { borderColor: colors.accent + '33' },
-  briefHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
-  pulseIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.accent + '22', alignItems: 'center', justifyContent: 'center' },
-  briefLabel: { color: colors.accent, fontSize: 11, fontWeight: '700', letterSpacing: 1.5, flex: 1 },
-  badge: { backgroundColor: colors.accent, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
-  badgeText: { color: '#000', fontSize: 10, fontWeight: '800' },
-  briefTitle: { color: colors.text, fontSize: 20, fontWeight: '700', marginBottom: 8 },
-  briefBody: { color: 'rgba(240,240,248,0.6)', fontSize: 14, lineHeight: 20 },
-  sectionTitle: { color: 'rgba(240,240,248,0.45)', fontSize: 11, fontWeight: '700', letterSpacing: 1.5, marginBottom: 12 },
-  sectionCount: { color: colors.accent },
-  emptyCard: { alignItems: 'center', padding: 24 },
-  emptyText: { color: 'rgba(240,240,248,0.45)', fontSize: 14 },
-  recHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 },
-  priorityBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
-  priorityText: { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
-  durationPill: { backgroundColor: 'rgba(240,240,248,0.08)', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  durationText: { color: 'rgba(240,240,248,0.6)', fontSize: 11 },
-  dismissBtn: { marginLeft: 'auto', padding: 4 },
-  dismissText: { color: 'rgba(240,240,248,0.3)', fontSize: 16 },
-  recTitle: { color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6 },
-  recDesc: { color: 'rgba(240,240,248,0.6)', fontSize: 13, lineHeight: 18 },
-  expandedDetail: { marginTop: 12, padding: 12, backgroundColor: 'rgba(200,241,53,0.06)', borderRadius: 10 },
-  detailText: { color: 'rgba(240,240,248,0.8)', fontSize: 13, lineHeight: 20 },
-  expandHint: { color: colors.accent, fontSize: 11, marginTop: 8, fontWeight: '600' },
-  dayCard: { width: 80, marginRight: 10, backgroundColor: colors.surface, borderRadius: 14, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(240,240,248,0.08)' },
-  dayCardToday: { borderColor: colors.accent, backgroundColor: colors.accent + '11' },
-  dayCardDone: { opacity: 0.6 },
-  dayLabel: { color: 'rgba(240,240,248,0.45)', fontSize: 10, fontWeight: '700', letterSpacing: 1, marginBottom: 6 },
-  dayType: { color: colors.text, fontSize: 11, fontWeight: '600', marginBottom: 4, textAlign: 'center' },
-  dayDuration: { color: 'rgba(240,240,248,0.45)', fontSize: 10, marginBottom: 6 },
-  rpePill: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, marginBottom: 8 },
-  rpeText: { fontSize: 9, fontWeight: '700' },
-  checkmark: { color: colors.accent, fontSize: 16, fontWeight: '700' },
-  insightCard: { borderColor: colors.accent + '22' },
-  insightLabel: { color: colors.accent, fontSize: 11, fontWeight: '700', letterSpacing: 1.5, marginBottom: 10 },
-  insightText: { color: colors.text, fontSize: 15, lineHeight: 22, fontWeight: '500', marginBottom: 14 },
-  dots: { flexDirection: 'row', gap: 6 },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(240,240,248,0.2)' },
-  dotActive: { width: 16, backgroundColor: colors.accent },
+  center: { alignItems: 'center', justifyContent: 'center' },
+  content: { padding: 20, paddingBottom: 40 },
+  header: { marginBottom: 20 },
+  section: { marginTop: 24 },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  emptyCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 32,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
 });

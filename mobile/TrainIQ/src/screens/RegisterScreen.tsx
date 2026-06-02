@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
@@ -40,6 +41,7 @@ export default function RegisterScreen({ navigation }: Props) {
   const [localError, setLocalError] = useState('');
 
   const handleRegister = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setLocalError('');
     clearError();
 
@@ -160,7 +162,10 @@ export default function RegisterScreen({ navigation }: Props) {
                     styles.modeCard,
                     selected && styles.modeCardSelected,
                   ]}
-                  onPress={() => setTrainingMode(mode.value)}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setTrainingMode(mode.value);
+                  }}
                   activeOpacity={0.8}
                   disabled={isLoading}
                 >
@@ -209,7 +214,10 @@ export default function RegisterScreen({ navigation }: Props) {
 
         {/* Footer */}
         <TouchableOpacity
-          onPress={() => navigation.navigate('Login')}
+          onPress={() => {
+            Haptics.selectionAsync();
+            navigation.navigate('Login');
+          }}
           style={styles.footer}
         >
           <Text style={[typography.body, { color: colors.muted }]}>

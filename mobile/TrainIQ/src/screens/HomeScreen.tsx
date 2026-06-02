@@ -1,18 +1,48 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
-import { getWhoopRecovery, getWhoopSleep, whoopStatus } from '../services/whoopService';
+import ReadinessRing from '../components/ReadinessRing';
+import MetricCard from '../components/MetricCard';
+import CoachCard from '../components/CoachCard';
+import WeeklyLoadChart from '../components/WeeklyLoadChart';
+import { getUserProfile, getReadiness } from '../services/apiService';
+import type { RecoveryMetric, CoachRecommendation, WeeklyLoad } from '../types';
 
-const mockData = {
-  readiness: 80,
-  sleep: 7.4,
-  hrv: 68,
-  strain: 12.3,
+// ── Mock Data (fallback) ─────────────────────────────────
+
+const MOCK_READINESS_SCORE = 80;
+const MOCK_READINESS_LABEL = 'GOOD';
+
+const recoveryMetrics: RecoveryMetric[] = [
+  { label: 'Sleep', value: '7.4', unit: 'hrs', trend: 'up', color: colors.accent2 },
+  { label: 'HRV', value: '68', unit: 'ms', trend: 'up', color: colors.accent },
+  { label: 'Strain', value: '12.3', trend: 'neutral', color: colors.danger },
+];
+
+const coachRec: CoachRecommendation = {
+  id: '1',
+  title: 'Easy aerobic session recommended',
+  description:
+    'Your HRV is trending up and recovery is strong. A moderate zone-2 session will build your aerobic base without accumulating excess fatigue.',
+  tag: 'AI INSIGHT',
 };
 
-function getGreeting() {
+const weeklyData: WeeklyLoad[] = [
+  { day: 'Mon', load: 65, max: 100 },
+  { day: 'Tue', load: 80, max: 100 },
+  { day: 'Wed', load: 45, max: 100 },
+  { day: 'Thu', load: 90, max: 100 },
+  { day: 'Fri', load: 30, max: 100 },
+  { day: 'Sat', load: 70, max: 100 },
+  { day: 'Today', load: 55, max: 100 },
+];
+
+// ── Helpers ───────────────────────────────────────────────
+
+function getGreeting(): string {
   const h = new Date().getHours();
   if (h < 12) return 'GOOD MORNING';
   if (h < 18) return 'GOOD AFTERNOON';
@@ -21,139 +51,140 @@ function getGreeting() {
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const [loading, setLoading] = useState(true);
-  const [isLive, setIsLive] = useState(false);
-  const [data, setData] = useState(mockData);
+  const [userName, setUserName] = useState('Athlete');
+  const [readinessScore, setReadinessScore] = useState(MOCK_READINESS_SCORE);
+  const [readinessLabel, setReadinessLabel] = useState(MOCK_READINESS_LABEL);
 
   useEffect(() => {
+    let cancelled = false;
     async function loadData() {
-      try {
-        const status = await whoopStatus();
-        if (status.connected) {
-          const [recovery, sleep] = await Promise.all([
-            getWhoopRecovery(),
-            getWhoopSleep(),
-          ]);
-          if (recovery) {
-            setIsLive(true);
-            const sleepHours = sleep
-              ? (sleep.stage_summary.total_in_bed_time_milli - sleep.stage_summary.total_awake_time_milli) / 1000 / 60 / 60
-              : mockData.sleep;
-            setData({
-              readiness: Math.round(recovery.recovery_score),
-              hrv: Math.round(recovery.hrv_rmssd_milli),
-              sleep: Math.round(sleepHours * 10) / 10,
-              strain: mockData.strain,
-            });
-          }
-        }
-      } catch (e) {
-        console.warn('Failed to load WHOOP data, using mock');
-      } finally {
-        setLoading(false);
+      const [profileResult, readinessResult] = await Promise.allSettled([
+        getUserProfile(),
+        getReadiness(),
+      ]);
+      if (cancelled) return;
+      if (profileResult.status === 'fulfilled' && profileResult.value?.profile?.firstName) {
+        setUserName(profileResult.value.profile.firstName);
+      }
+      if (readinessResult.status === 'fulfilled' && readinessResult.value) {
+        setReadinessScore(readinessResult.value.score);
+        setReadinessLabel(readinessResult.value.label.toUpperCase());
       }
     }
     loadData();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const d = data;
-
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: 40 }}>
+    <ScrollView
+      style={[styles.screen, { paddingTop: insets.top }]}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.greeting}>{getGreeting()}</Text>
-          <Text style={[typography.h1, { color: colors.text }]}>Hey, Felipe</Text>
+          <Text style={[typography.caption, styles.greeting]}>{getGreeting()}</Text>
+          <Text style={typography.h1}>Hey, {userName}</Text>
         </View>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>F</Text>
+          <Text style={styles.avatarText}>{userName.charAt(0).toUpperCase()}</Text>
         </View>
       </View>
 
-      {isLive && (
-        <View style={styles.liveBadge}>
-          <View style={styles.liveDot} />
-          <Text style={styles.liveText}>WHOOP LIVE</Text>
-        </View>
-      )}
-
-      <View style={styles.ringContainer}>
-        {loading ? (
-          <ActivityIndicator size="large" color={colors.accent} />
-        ) : (
-          <View style={[styles.ring, { borderColor: d.readiness >= 67 ? colors.accent : d.readiness >= 34 ? '#F5A623' : '#EF4444' }]}>
-            <Text style={styles.ringScore}>{d.readiness}</Text>
-            <Text style={styles.ringLabel}>READINESS</Text>
-          </View>
-        )}
+      {/* Readiness Ring */}
+      <View style={styles.section}>
+        <ReadinessRing score={readinessScore} maxScore={100} />
       </View>
 
-      <Text style={styles.sectionTitle}>RECOVERY SNAPSHOT</Text>
-      <View style={styles.snapshotRow}>
-        <View style={styles.snapshotCard}>
-          <Text style={styles.snapshotLabel}>Sleep</Text>
-          <Text style={[styles.snapshotValue, { color: '#4A9EFF' }]}>{d.sleep}<Text style={styles.snapshotUnit}> hrs</Text></Text>
-        </View>
-        <View style={styles.snapshotCard}>
-          <Text style={styles.snapshotLabel}>HRV</Text>
-          <Text style={[styles.snapshotValue, { color: colors.accent }]}>{d.hrv}<Text style={styles.snapshotUnit}> ms</Text></Text>
-        </View>
-        <View style={styles.snapshotCard}>
-          <Text style={styles.snapshotLabel}>Strain</Text>
-          <Text style={[styles.snapshotValue, { color: '#EF4444' }]}>{d.strain}</Text>
+      {/* Recovery Snapshot */}
+      <View style={styles.section}>
+        <Text style={[typography.label, styles.sectionLabel]}>RECOVERY SNAPSHOT</Text>
+        <View style={styles.metricsRow}>
+          {recoveryMetrics.map((m) => (
+            <MetricCard key={m.label} metric={m} />
+          ))}
         </View>
       </View>
 
-      <View style={styles.coachCard}>
-        <Text style={styles.coachBadge}>AI INSIGHT</Text>
-        <Text style={styles.coachTitle}>
-          {d.readiness >= 67 ? 'High recovery — time to push' : d.readiness >= 34 ? 'Moderate recovery — stay balanced' : 'Low recovery — prioritize rest'}
+      {/* Coach Card */}
+      <View style={styles.section}>
+        <Text style={[typography.label, styles.sectionLabel]}>AI COACH</Text>
+        <CoachCard recommendation={coachRec} />
+      </View>
+
+      {/* Weekly Load */}
+      <View style={styles.section}>
+        <WeeklyLoadChart data={weeklyData} />
+      </View>
+
+      {/* Insight Strip */}
+      <LinearGradient
+        colors={['rgba(200,241,53,0.10)', 'rgba(91,141,239,0.08)']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.insightStrip}
+      >
+        <Text style={[typography.caption, { color: colors.accent, marginBottom: 4 }]}>
+          {readinessLabel}
         </Text>
-        <Text style={styles.coachBody}>
-          {d.readiness >= 67
-            ? 'Your body is ready for intense training today. HRV is strong and sleep was solid.'
-            : d.readiness >= 34
-            ? 'Your body is in maintenance mode. A moderate aerobic session will keep you progressing.'
-            : 'Focus on recovery today. Sleep, hydration, and light movement will help you bounce back.'}
+        <Text style={[typography.body, { color: colors.text }]}>
+          Your training load this week is 12% below target. Consider adding a tempo session
+          tomorrow to stay on track.
         </Text>
-      </View>
-
-      <View style={styles.insightCard}>
-        <Text style={styles.insightLabel}>READINESS</Text>
-        <Text style={styles.insightText}>
-          {isLive
-            ? `Live data from WHOOP. Recovery score ${d.readiness}%, HRV ${d.hrv}ms.`
-            : 'Connect WHOOP in Profile to see your real biometric data here.'}
-        </Text>
-      </View>
+      </LinearGradient>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#0A0A0F' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 16 },
-  greeting: { color: 'rgba(240,240,248,0.45)', fontSize: 12, fontWeight: '600', letterSpacing: 1.5, marginBottom: 4 },
-  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#C8F135', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: '#000', fontSize: 18, fontWeight: '800' },
-  liveBadge: { flexDirection: 'row', alignItems: 'center', alignSelf: 'center', backgroundColor: '#C8F13522', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4, marginBottom: 16, gap: 6 },
-  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#C8F135' },
-  liveText: { color: '#C8F135', fontSize: 10, fontWeight: '800', letterSpacing: 1.5 },
-  ringContainer: { alignItems: 'center', marginBottom: 32, minHeight: 160, justifyContent: 'center' },
-  ring: { width: 160, height: 160, borderRadius: 80, borderWidth: 8, alignItems: 'center', justifyContent: 'center' },
-  ringScore: { color: '#F0F0F8', fontSize: 48, fontWeight: '800' },
-  ringLabel: { color: 'rgba(240,240,248,0.45)', fontSize: 11, letterSpacing: 1.5 },
-  sectionTitle: { color: 'rgba(240,240,248,0.45)', fontSize: 11, fontWeight: '700', letterSpacing: 1.5, marginHorizontal: 20, marginBottom: 12 },
-  snapshotRow: { flexDirection: 'row', paddingHorizontal: 20, gap: 12, marginBottom: 20 },
-  snapshotCard: { flex: 1, backgroundColor: '#12121A', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: 'rgba(240,240,248,0.08)' },
-  snapshotLabel: { color: 'rgba(240,240,248,0.45)', fontSize: 11, marginBottom: 6 },
-  snapshotValue: { fontSize: 24, fontWeight: '800' },
-  snapshotUnit: { fontSize: 12, fontWeight: '400' },
-  coachCard: { marginHorizontal: 20, backgroundColor: '#12121A', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#C8F13533', marginBottom: 20 },
-  coachBadge: { color: '#C8F135', fontSize: 10, fontWeight: '700', letterSpacing: 1.5, marginBottom: 8 },
-  coachTitle: { color: '#F0F0F8', fontSize: 16, fontWeight: '700', marginBottom: 8 },
-  coachBody: { color: 'rgba(240,240,248,0.6)', fontSize: 13, lineHeight: 20 },
-  insightCard: { marginHorizontal: 20, backgroundColor: '#12121A', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#C8F13522' },
-  insightLabel: { color: '#C8F135', fontSize: 10, fontWeight: '700', letterSpacing: 1.5, marginBottom: 8 },
-  insightText: { color: 'rgba(240,240,248,0.8)', fontSize: 14, lineHeight: 20 },
+  screen: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  content: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  greeting: {
+    marginBottom: 4,
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    fontFamily: 'Syne_700Bold',
+    fontSize: 18,
+    color: colors.background,
+  },
+  section: {
+    marginTop: 28,
+  },
+  sectionLabel: {
+    marginBottom: 14,
+  },
+  metricsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  insightStrip: {
+    marginTop: 28,
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
 });

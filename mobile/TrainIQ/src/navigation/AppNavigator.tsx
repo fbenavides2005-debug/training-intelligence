@@ -1,7 +1,8 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { View, StyleSheet } from 'react-native';
-import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
+import { StyleSheet } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import Svg, { Path, Circle } from 'react-native-svg';
 import { colors } from '../theme/colors';
 import HomeScreen from '../screens/HomeScreen';
 import TrainingScreen from '../screens/TrainingScreen';
@@ -80,6 +81,12 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   }
 }
 
+const tabHapticsListener = {
+  tabPress: () => {
+    Haptics.selectionAsync();
+  },
+};
+
 export default function AppNavigator() {
   return (
     <Tab.Navigator
@@ -92,11 +99,31 @@ export default function AppNavigator() {
         tabBarLabelStyle: styles.tabLabel,
       })}
     >
-      <Tab.Screen name="Home" component={HomeScreen} />
-      <Tab.Screen name="Training" component={TrainingScreen} />
-      <Tab.Screen name="Coach" component={CoachScreen} />
-      <Tab.Screen name="Recovery" component={RecoveryScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen
+        name="Home"
+        component={HomeScreen}
+        listeners={tabHapticsListener}
+      />
+      <Tab.Screen
+        name="Training"
+        component={TrainingScreen}
+        listeners={tabHapticsListener}
+      />
+      <Tab.Screen
+        name="Coach"
+        component={CoachScreen}
+        listeners={tabHapticsListener}
+      />
+      <Tab.Screen
+        name="Recovery"
+        component={RecoveryScreen}
+        listeners={tabHapticsListener}
+      />
+      <Tab.Screen
+        name="Profile"
+        component={ProfileScreen}
+        listeners={tabHapticsListener}
+      />
     </Tab.Navigator>
   );
 }
@@ -106,13 +133,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderTopColor: colors.cardBorder,
     borderTopWidth: 1,
-    height: 88,
-    paddingTop: 8,
-    paddingBottom: 28,
+    height: 84,
+    paddingTop: 10,
+    paddingBottom: 24,
+    elevation: 0,
+    shadowOpacity: 0,
   },
   tabLabel: {
     fontFamily: 'DMSans_500Medium',
-    fontSize: 11,
+    fontSize: 10.5,
+    letterSpacing: 0.6,
     marginTop: 4,
   },
 });

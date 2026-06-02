@@ -1,30 +1,14 @@
-import React from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
-import { useAuth } from '../context/AuthContext';
-import { colors } from '../theme/colors';
+import React, { useState } from 'react';
 import AppNavigator from './AppNavigator';
-import AuthNavigator from './AuthNavigator';
+import OnboardingNavigator from './OnboardingNavigator';
 
 export default function RootNavigator() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const [hasOnboarded, setHasOnboarded] = useState(false);
+  const onboarded = Boolean(hasOnboarded);
 
-  // Show loading spinner while checking stored token
-  if (isLoading) {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator size="large" color={colors.accent} />
-      </View>
-    );
+  if (!onboarded) {
+    return <OnboardingNavigator onComplete={() => setHasOnboarded(true)} />;
   }
 
   return <AppNavigator />;
 }
-
-const styles = StyleSheet.create({
-  loading: {
-    flex: 1,
-    backgroundColor: colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
