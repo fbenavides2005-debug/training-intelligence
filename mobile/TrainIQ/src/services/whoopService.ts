@@ -1,4 +1,4 @@
-const API_BASE = 'https://ubiquitous-spork-97p65j6qjxvp29rxg-4000.app.github.dev';
+const API_BASE = 'https://training-intelligence-a43n.onrender.com';
 
 export async function whoopStatus(): Promise<{ connected: boolean }> {
   try {
@@ -44,4 +44,11 @@ export async function getWhoopWorkouts() {
 
 export function getWhoopAuthUrl() {
   return `${API_BASE}/api/whoop/auth`;
+}
+
+export async function whoopAuth(): Promise<void> {
+  const authUrl = `${API_BASE}/api/whoop/auth`;
+  if (typeof window !== 'undefined') {
+    window.open(authUrl, '_blank', 'width=600,height=700');
+  }
 }
