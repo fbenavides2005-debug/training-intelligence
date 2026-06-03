@@ -89,11 +89,13 @@ async function whoopGet(path: string): Promise<{ status: number; body: unknown }
 
 // GET /api/whoop/auth → redirect user to WHOOP OAuth consent page
 router.get('/auth', (_req: Request, res: Response) => {
+  const state = Math.random().toString(36).substring(2, 15);
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: config.whoop.clientId,
     redirect_uri: config.whoop.redirectUri,
     scope: config.whoop.scopes.join(' '),
+    state,
   });
   res.redirect(`${config.whoop.authUrl}?${params.toString()}`);
 });
