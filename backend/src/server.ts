@@ -12,7 +12,18 @@ const app = express();
 
 // ── Middleware ──────────────────────────────────────────
 app.use(cors({
-  origin: true,
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, etc)
+    if (!origin) return callback(null, true);
+    // Allow any github.dev codespace, localhost, and onrender.com
+    const allowed = [
+      /\.app\.github\.dev$/,
+      /^http:\/\/localhost/,
+      /\.onrender\.com$/,
+    ];
+    const isAllowed = allowed.some(pattern => pattern.test(origin));
+    callback(null, isAllowed ? origin : false);
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
