@@ -81,7 +81,10 @@ async function whoopGet(path: string): Promise<{ status: number; body: unknown }
     headers: { Authorization: `Bearer ${token}` },
   });
 
-  const body = await res.json().catch(() => ({ error: 'Invalid JSON from WHOOP' }));
+  const text = await res.text();
+  console.log('WHOOP', path, 'status:', res.status, 'body:', text.slice(0, 300));
+  let body: unknown;
+  try { body = JSON.parse(text); } catch { body = { error: 'Invalid JSON from WHOOP', raw: text.slice(0, 100) }; }
   return { status: res.status, body };
 }
 
