@@ -31,7 +31,7 @@ async function removeToken(): Promise<void> {
 
 // ── API Client ─────────────────────────────────────────
 const api = axios.create({
-  baseURL: 'https://trainiq-production.up.railway.app/api',
+  baseURL: 'https://training-intelligence-a43n.onrender.com/api',
   timeout: 15_000,
   headers: { 'Content-Type': 'application/json' },
 });
