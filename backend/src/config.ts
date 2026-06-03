@@ -28,7 +28,7 @@ export const config = {
   whoop: {
     clientId: optional('WHOOP_CLIENT_ID'),
     clientSecret: optional('WHOOP_CLIENT_SECRET'),
-    redirectUri: optional('WHOOP_REDIRECT_URI', 'http://localhost:3000/api/whoop/callback'),
+    redirectUri: optional('WHOOP_REDIRECT_URI', 'http://localhost:3000/api/whoop/callback').trim(),
     authUrl: 'https://api.prod.whoop.com/oauth/oauth2/auth',
     tokenUrl: 'https://api.prod.whoop.com/oauth/oauth2/token',
     apiBaseUrl: 'https://api.prod.whoop.com/developer',
