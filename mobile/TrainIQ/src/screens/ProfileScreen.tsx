@@ -14,16 +14,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import { whoopAuth, whoopStatus } from '../services/whoopService';
-import type { TrainingMode } from '../types';
+import { useAuth } from '../context/AuthContext';
+import { getUserProfile, updateSettings } from '../services/apiService';
+import type { TrainingMode, User } from '../types';
 
 // ── Mock Data ─────────────────────────────────────────────
-
-const PROFILE = {
-  firstName: 'Felipe',
-  lastName: 'Benavides',
-  email: 'felipe@trainiq.app',
-  sport: 'Running',
-};
 
 const STATS_30D = {
   workouts: 18,
@@ -50,12 +45,21 @@ const TRAINING_MODES: { key: TrainingMode; label: string; desc: string }[] = [
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const [currentMode, setCurrentMode] = useState<TrainingMode>('professional');
+  const { user, logout } = useAuth();
+  const [profile, setProfile] = useState<User | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [currentMode, setCurrentMode] = useState<TrainingMode>(
+    (user?.profile.trainingMode ?? 'professional') as TrainingMode,
+  );
   const [whoopConnected, setWhoopConnected] = useState(false);
   const [connectingWhoop, setConnectingWhoop] = useState(false);
 
-  const fullName = `${PROFILE.firstName} ${PROFILE.lastName}`;
-  const initials = `${PROFILE.firstName.charAt(0)}${PROFILE.lastName.charAt(0)}`.toUpperCase();
+  const firstName = profile?.profile.firstName ?? user?.profile.firstName ?? 'Athlete';
+  const lastName = profile?.profile.lastName ?? user?.profile.lastName ?? '';
+  const email = profile?.email ?? user?.email ?? '';
+  const sport = profile?.profile.sport ?? user?.profile.sport ?? 'Training';
+  const fullName = lastName ? `${firstName} ${lastName}` : firstName;
+  const initials = `${firstName.charAt(0)}${lastName ? lastName.charAt(0) : ''}`.toUpperCase();
 
   const checkWhoopStatus = useCallback(async () => {
     const connected = await whoopStatus();
@@ -63,6 +67,19 @@ export default function ProfileScreen() {
   }, []);
 
   useEffect(() => {
+    (async () => {
+      try {
+        const data = await getUserProfile();
+        setProfile(data);
+        if (data?.profile.trainingMode) {
+          setCurrentMode(data.profile.trainingMode);
+        }
+      } catch {
+        // Fall back to user from AuthContext
+      } finally {
+        setLoadingProfile(false);
+      }
+    })();
     checkWhoopStatus();
   }, [checkWhoopStatus]);
 
@@ -82,15 +99,34 @@ export default function ProfileScreen() {
     if (mode === currentMode) return;
     Haptics.selectionAsync();
     setCurrentMode(mode);
+    try {
+      updateSettings({ trainingMode: mode });
+    } catch {
+      // silent fail
+    }
   };
 
   const handleLogout = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     Alert.alert('Logout', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Logout', style: 'destructive' },
+      {
+        text: 'Logout',
+        style: 'destructive',
+        onPress: async () => {
+          await logout();
+        },
+      },
     ]);
   };
+
+  if (loadingProfile) {
+    return (
+      <View style={[styles.screen, styles.center, { paddingTop: insets.top + 16 }]}>
+        <ActivityIndicator size={36} color={colors.accent} />
+      </View>
+    );
+  }
 
   return (
     <ScrollView
@@ -107,11 +143,11 @@ export default function ProfileScreen() {
         </View>
         <Text style={[typography.h2, { marginTop: 14 }]}>{fullName}</Text>
         <Text style={[typography.body, { color: colors.muted, marginTop: 4 }]}>
-          {PROFILE.email}
+          {email}
         </Text>
         <View style={styles.sportBadge}>
           <Text style={[typography.caption, { color: colors.accent }]}>
-            {PROFILE.sport.toUpperCase()}
+            {sport.toUpperCase()}
           </Text>
         </View>
       </View>
@@ -291,6 +327,7 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
+  center: { alignItems: 'center', justifyContent: 'center' },
   content: { padding: 20, paddingBottom: 40 },
   section: { marginTop: 28 },
   sectionLabel: { marginBottom: 14 },
