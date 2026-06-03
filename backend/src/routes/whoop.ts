@@ -181,19 +181,19 @@ router.get('/status', async (_req: Request, res: Response) => {
 
 // GET /api/whoop/recovery → latest recovery record
 router.get('/recovery', async (_req: Request, res: Response) => {
-  const { status, body } = await whoopGet('/v1/recovery?limit=1');
+  const { status, body } = await whoopGet('/v2/recovery?limit=1');
   res.status(status).json(body);
 });
 
 // GET /api/whoop/sleep → latest sleep record
 router.get('/sleep', async (_req: Request, res: Response) => {
-  const { status, body } = await whoopGet('/v1/sleep?limit=1');
+  const { status, body } = await whoopGet('/v2/activity/sleep?limit=1');
   res.status(status).json(body);
 });
 
 // GET /api/whoop/workouts → recent workouts
 router.get('/workouts', async (_req: Request, res: Response) => {
-  const { status, body } = await whoopGet('/v1/workout?limit=10');
+  const { status, body } = await whoopGet('/v2/activity/workout?limit=10');
   res.status(status).json(body);
 });
 
