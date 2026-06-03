@@ -1,31 +1,42 @@
 import { Router, Request, Response } from 'express';
 import { config } from '../config';
+import { WhoopToken } from '../models/WhoopToken';
 
 const router = Router();
 
-// ── In-memory token store (single-user; swap for DB when ready) ───────────
+// ── MongoDB token helpers ────────────────────────────────────────────────
 
-interface WhoopToken {
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: number; // ms epoch
+async function getToken() {
+  return WhoopToken.findOne().sort({ updatedAt: -1 });
 }
 
-let storedToken: WhoopToken | null = null;
+async function saveToken(data: {
+  access_token: string;
+  refresh_token?: string;
+  expires_at: number;
+}) {
+  await WhoopToken.deleteMany({});
+  return WhoopToken.create(data);
+}
 
 async function getValidAccessToken(): Promise<string | null> {
-  if (!storedToken) return null;
+  const token = await getToken();
+  if (!token) return null;
 
   // Return cached token if still valid (with 60-second buffer)
-  if (Date.now() < storedToken.expiresAt - 60_000) {
-    return storedToken.accessToken;
+  if (Date.now() < token.expires_at - 60_000) {
+    return token.access_token;
   }
 
   // Attempt token refresh
+  if (!token.refresh_token) {
+    return null;
+  }
+
   try {
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
-      refresh_token: storedToken.refreshToken,
+      refresh_token: token.refresh_token,
       client_id: config.whoop.clientId,
       client_secret: config.whoop.clientSecret,
     });
@@ -38,7 +49,7 @@ async function getValidAccessToken(): Promise<string | null> {
 
     if (!res.ok) {
       console.error('WHOOP token refresh failed:', res.status, await res.text());
-      storedToken = null;
+      await WhoopToken.deleteMany({});
       return null;
     }
 
@@ -48,16 +59,16 @@ async function getValidAccessToken(): Promise<string | null> {
       expires_in?: number;
     };
 
-    storedToken = {
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token ?? storedToken.refreshToken,
-      expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
-    };
+    await saveToken({
+      access_token: data.access_token,
+      refresh_token: data.refresh_token ?? token.refresh_token,
+      expires_at: Date.now() + (data.expires_in ?? 3600) * 1000,
+    });
 
-    return storedToken.accessToken;
+    return data.access_token;
   } catch (err) {
     console.error('WHOOP token refresh error:', err);
-    storedToken = null;
+    await WhoopToken.deleteMany({}).catch(() => {});
     return null;
   }
 }
@@ -124,11 +135,11 @@ router.get('/callback', async (req: Request, res: Response) => {
       expires_in?: number;
     };
 
-    storedToken = {
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token,
-      expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
-    };
+    await saveToken({
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      expires_at: Date.now() + (data.expires_in ?? 3600) * 1000,
+    });
 
     console.log('WHOOP token stored successfully');
 
@@ -157,8 +168,13 @@ router.get('/callback', async (req: Request, res: Response) => {
 });
 
 // GET /api/whoop/status → check if a token is stored
-router.get('/status', (_req: Request, res: Response) => {
-  res.json({ connected: storedToken !== null });
+router.get('/status', async (_req: Request, res: Response) => {
+  try {
+    const token = await getToken();
+    res.json({ connected: !!token?.access_token });
+  } catch {
+    res.json({ connected: false });
+  }
 });
 
 // GET /api/whoop/recovery → latest recovery record
