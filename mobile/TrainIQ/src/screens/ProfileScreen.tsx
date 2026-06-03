@@ -62,7 +62,8 @@ export default function ProfileScreen() {
   const initials = `${firstName.charAt(0)}${lastName ? lastName.charAt(0) : ''}`.toUpperCase();
 
   const checkWhoopStatus = useCallback(async () => {
-    const connected = await whoopStatus();
+    const status = await whoopStatus();
+    const connected = status.connected;
     setWhoopConnected(connected);
   }, []);
 
