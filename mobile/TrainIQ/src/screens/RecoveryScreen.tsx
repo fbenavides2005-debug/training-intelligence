@@ -534,8 +534,8 @@ export default function RecoveryScreen() {
     let cancelled = false;
     (async () => {
       try {
-        const connected = await whoopStatus();
-        if (!connected || cancelled) { setLoading(false); return; }
+        const status = await whoopStatus();
+        if (!status.connected || cancelled) { setLoading(false); return; }
         const [r, s] = await Promise.all([getWhoopRecovery(), getWhoopSleep()]);
         if (!cancelled) { setRecovery(r); setSleep(s); }
       } catch {
