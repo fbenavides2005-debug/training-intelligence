@@ -68,7 +68,7 @@ export default function HomeScreen() {
       if (profileResult.status === 'fulfilled' && profileResult.value?.profile?.firstName) {
         setUserName(profileResult.value.profile.firstName);
       }
-      if (readinessResult.status === 'fulfilled' && readinessResult.value) {
+      if (readinessResult.status === 'fulfilled' && readinessResult.value?.score && readinessResult.value?.label) {
         setReadinessScore(readinessResult.value.score);
         setReadinessLabel((readinessResult.value.label ?? 'good').toUpperCase());
       } else if (whoopResult.status === 'fulfilled' && whoopResult.value) {
