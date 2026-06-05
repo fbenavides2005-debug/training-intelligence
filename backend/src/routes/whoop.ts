@@ -89,6 +89,15 @@ async function whoopGet(path: string): Promise<{ status: number; body: unknown }
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────
+// DELETE /api/whoop/disconnect
+router.delete("/disconnect", async (_req: Request, res: Response) => {
+  try {
+    await WhoopToken.deleteMany({});
+    res.json({ disconnected: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // GET /api/whoop/auth → redirect user to WHOOP OAuth consent page
 router.get('/auth', (_req: Request, res: Response) => {
