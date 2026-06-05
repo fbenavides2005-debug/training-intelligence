@@ -70,7 +70,7 @@ export default function HomeScreen() {
       }
       if (readinessResult.status === 'fulfilled' && readinessResult.value) {
         setReadinessScore(readinessResult.value.score);
-        setReadinessLabel(readinessResult.value.label.toUpperCase());
+        setReadinessLabel((readinessResult.value.label ?? 'good').toUpperCase());
       } else if (whoopResult.status === 'fulfilled' && whoopResult.value) {
         setReadinessScore(whoopResult.value.recoveryScore);
         setReadinessLabel(whoopResult.value.recoveryScore >= 67 ? 'PEAK' : whoopResult.value.recoveryScore >= 34 ? 'GOOD' : 'LOW');
