@@ -9,6 +9,7 @@ import MetricCard from '../components/MetricCard';
 import CoachCard from '../components/CoachCard';
 import WeeklyLoadChart from '../components/WeeklyLoadChart';
 import { getUserProfile, getReadiness } from '../services/apiService';
+import { getWhoopRecovery } from '../services/whoopService';
 import type { RecoveryMetric, CoachRecommendation, WeeklyLoad } from '../types';
 
 // ── Mock Data (fallback) ─────────────────────────────────
@@ -58,9 +59,10 @@ export default function HomeScreen() {
   useEffect(() => {
     let cancelled = false;
     async function loadData() {
-      const [profileResult, readinessResult] = await Promise.allSettled([
+      const [profileResult, readinessResult, whoopResult] = await Promise.allSettled([
         getUserProfile(),
         getReadiness(),
+        getWhoopRecovery(),
       ]);
       if (cancelled) return;
       if (profileResult.status === 'fulfilled' && profileResult.value?.profile?.firstName) {
@@ -69,6 +71,9 @@ export default function HomeScreen() {
       if (readinessResult.status === 'fulfilled' && readinessResult.value) {
         setReadinessScore(readinessResult.value.score);
         setReadinessLabel(readinessResult.value.label.toUpperCase());
+      } else if (whoopResult.status === 'fulfilled' && whoopResult.value) {
+        setReadinessScore(whoopResult.value.recoveryScore);
+        setReadinessLabel(whoopResult.value.recoveryScore >= 67 ? 'PEAK' : whoopResult.value.recoveryScore >= 34 ? 'GOOD' : 'LOW');
       }
     }
     loadData();
