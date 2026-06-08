@@ -181,6 +181,7 @@ const MOCK_WEEKLY_LOAD: DayLoad[] = [
 
 function getSportName(sportId: number): string {
   const sports: Record<number, string> = {
+    [-1]: 'Activity',
     0: 'Running', 1: 'Cycling', 16: 'Baseball', 17: 'Basketball',
     18: 'Rowing', 19: 'Fencing', 20: 'Field Hockey', 21: 'Football',
     22: 'Golf', 24: 'Ice Hockey', 25: 'Lacrosse', 27: 'Rugby',
@@ -193,7 +194,7 @@ function getSportName(sportId: number): string {
     55: 'Martial Arts', 56: 'Mountain Biking', 57: 'Powerlifting',
     59: 'Rock Climbing', 60: 'Paddleboarding', 63: 'Triathlon',
     64: 'Walking', 65: 'Surfing', 66: 'Elliptical', 67: 'Stairmaster',
-    68: 'Meditation', 126: 'Strength Training', 127: 'Functional Fitness',
+    68: 'Meditation', 126: 'Strength Training', 127: 'Functional Fitness', 128: 'Functional Fitness', 233: 'Breathwork',
   };
   return sports[sportId] ?? 'Workout';
 }
