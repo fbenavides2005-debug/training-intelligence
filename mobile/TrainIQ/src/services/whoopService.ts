@@ -45,17 +45,6 @@ export interface WhoopSleep {
   sleepEfficiency?: number;
 }
 
-export interface WhoopWorkout {
-  id: number;
-  sport: string;
-  startTime: string;
-  durationMin: number;
-  avgHeartRate?: number;
-  maxHeartRate?: number;
-  kilojoules?: number;
-  strain?: number;
-}
-
 export async function getWhoopRecovery(): Promise<WhoopRecovery | null> {
   try {
     const res = await fetch(`${BACKEND}/api/whoop/recovery`);
@@ -127,7 +116,7 @@ export async function getWhoopSleep(): Promise<WhoopSleep | null> {
   }
 }
 
-export async function getWhoopWorkouts(): Promise<WhoopWorkout[]> {
+export async function getWhoopWorkouts() {
   try {
     const res = await fetch(`${BACKEND}/api/whoop/workouts`);
     if (!res.ok) return [];
@@ -135,92 +124,55 @@ export async function getWhoopWorkouts(): Promise<WhoopWorkout[]> {
       records?: Array<{
         id?: number;
         sport_id?: number;
-        sport_name?: string;
+        created_at?: string;
+        updated_at?: string;
         start?: string;
         end?: string;
+        timezone_offset?: string;
+        score_state?: string;
         score?: {
           strain?: number;
           average_heart_rate?: number;
           max_heart_rate?: number;
           kilojoule?: number;
+          percent_recorded?: number;
+          distance_meter?: number;
+          altitude_gain_meter?: number;
+          altitude_change_meter?: number;
+          zone_duration?: {
+            zone_zero_milli?: number;
+            zone_one_milli?: number;
+            zone_two_milli?: number;
+            zone_three_milli?: number;
+            zone_four_milli?: number;
+            zone_five_milli?: number;
+          };
         };
       }>;
     };
 
-    return (data.records ?? []).map((r) => {
-      const startMs = r.start ? new Date(r.start).getTime() : 0;
-      const endMs = r.end ? new Date(r.end).getTime() : startMs;
-      return {
-        id: r.id ?? 0,
-        sport: r.sport_name ?? sportName(r.sport_id ?? -1),
-        startTime: r.start ?? '',
-        durationMin: Math.round((endMs - startMs) / 60_000),
-        avgHeartRate: r.score?.average_heart_rate,
-        maxHeartRate: r.score?.max_heart_rate,
-        kilojoules: r.score?.kilojoule,
-        strain: r.score?.strain,
-      };
-    });
+    return (data.records ?? []).map((r) => ({
+      id: r.id ?? 0,
+      sport_id: r.sport_id ?? 0,
+      created_at: r.created_at ?? '',
+      updated_at: r.updated_at ?? '',
+      start: r.start ?? '',
+      end: r.end ?? '',
+      timezone_offset: r.timezone_offset ?? '',
+      score_state: r.score_state ?? '',
+      score: r.score ? {
+        strain: r.score.strain ?? 0,
+        average_heart_rate: r.score.average_heart_rate ?? 0,
+        max_heart_rate: r.score.max_heart_rate ?? 0,
+        kilojoule: r.score.kilojoule ?? 0,
+        percent_recorded: r.score.percent_recorded ?? 0,
+        distance_meter: r.score.distance_meter,
+        altitude_gain_meter: r.score.altitude_gain_meter,
+        altitude_change_meter: r.score.altitude_change_meter,
+        zone_duration: r.score.zone_duration,
+      } : undefined,
+    }));
   } catch {
     return [];
   }
-}
-
-function sportName(id: number): string {
-  const map: Record<number, string> = {
-    0: 'Running',
-    1: 'Cycling',
-    16: 'Baseball',
-    17: 'Basketball',
-    18: 'Rowing',
-    19: 'Fencing',
-    20: 'Field Hockey',
-    21: 'Football',
-    22: 'Golf',
-    24: 'Ice Hockey',
-    25: 'Lacrosse',
-    27: 'Rugby',
-    28: 'Sailing',
-    29: 'Skiing',
-    30: 'Soccer',
-    31: 'Softball',
-    32: 'Squash',
-    33: 'Swimming',
-    34: 'Tennis',
-    35: 'Track & Field',
-    36: 'Volleyball',
-    37: 'Water Polo',
-    38: 'Wrestling',
-    39: 'Boxing',
-    42: 'Dance',
-    43: 'Pilates',
-    44: 'Yoga',
-    45: 'Weightlifting',
-    47: 'Cross Country Skiing',
-    48: 'Functional Fitness',
-    49: 'Duathlon',
-    51: 'Gymnastics',
-    52: 'Hiking',
-    53: 'Horseback Riding',
-    55: 'Kayaking',
-    56: 'Martial Arts',
-    57: 'Mountain Biking',
-    59: 'Paddleboarding',
-    60: 'Rock Climbing',
-    61: 'Rowing Machine',
-    62: 'Spinning',
-    63: 'Stairmaster',
-    64: 'Surfing',
-    65: 'Swimming',
-    66: 'Triathlon',
-    67: 'Walking',
-    68: 'Elliptical',
-    69: 'Snowboarding',
-    70: 'HIIT',
-    71: 'Strength',
-    72: 'Cardio',
-    73: 'Crossfit',
-    74: 'Meditation',
-  };
-  return map[id] ?? 'Workout';
 }

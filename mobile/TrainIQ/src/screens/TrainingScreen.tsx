@@ -15,7 +15,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import { whoopStatus, getWhoopWorkouts } from '../services/whoopService';
-import type { WhoopWorkout } from '../services/whoopService';
 
 // ── Design Tokens ─────────────────────────────────────────
 
@@ -57,6 +56,35 @@ interface WeekStats {
   totalDays: number;
   totalMinutes: number;
   calories: number;
+}
+
+interface WhoopWorkout {
+  id: number;
+  sport_id: number;
+  created_at: string;
+  updated_at: string;
+  start: string;
+  end: string;
+  timezone_offset: string;
+  score_state: string;
+  score?: {
+    strain: number;
+    average_heart_rate: number;
+    max_heart_rate: number;
+    kilojoule: number;
+    percent_recorded: number;
+    distance_meter?: number;
+    altitude_gain_meter?: number;
+    altitude_change_meter?: number;
+    zone_duration?: {
+      zone_zero_milli?: number;
+      zone_one_milli?: number;
+      zone_two_milli?: number;
+      zone_three_milli?: number;
+      zone_four_milli?: number;
+      zone_five_milli?: number;
+    };
+  };
 }
 
 // ── Mock Data ─────────────────────────────────────────────
@@ -151,93 +179,67 @@ const MOCK_WEEKLY_LOAD: DayLoad[] = [
 
 // ── WHOOP Helpers ─────────────────────────────────────────
 
-const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-function sportToWorkoutType(sport: string): WorkoutType {
-  const s = sport.toLowerCase();
-  if (s.includes('run') || s.includes('walk') || s.includes('hike') || s.includes('trail')) return 'Running';
-  if (s.includes('cycl') || s.includes('bike') || s.includes('spin')) return 'Cycling';
-  if (s.includes('swim')) return 'Swimming';
-  if (s.includes('hiit') || s.includes('crossfit') || s.includes('cardio') || s.includes('elliptical') || s.includes('functional')) return 'HIIT';
-  return 'Strength';
-}
-
-function strainToRPE(strain?: number): number {
-  if (strain == null) return 3;
-  if (strain >= 15) return 9;
-  if (strain >= 12) return 8;
-  if (strain >= 8) return 7;
-  if (strain >= 5) return 5;
-  return 3;
-}
-
-function formatWorkoutDate(startTime: string): string {
-  if (!startTime) return '';
-  const d = new Date(startTime);
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yestStart = new Date(todayStart.getTime() - 86_400_000);
-  const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-  if (d >= todayStart) return `Today · ${timeStr}`;
-  if (d >= yestStart) return `Yesterday · ${timeStr}`;
-  return `${DAY_LABELS[(d.getDay() + 6) % 7]} · ${timeStr}`;
-}
-
-function whoopToActivity(w: WhoopWorkout): Activity {
-  return {
-    id: String(w.id),
-    type: sportToWorkoutType(w.sport),
-    name: w.sport,
-    date: formatWorkoutDate(w.startTime),
-    durationMin: w.durationMin,
-    calories: Math.round((w.kilojoules ?? 0) / 4.184),
-    avgHr: w.avgHeartRate,
-    maxHr: w.maxHeartRate,
-    intensity: strainToRPE(w.strain),
+function getSportName(sportId: number): string {
+  const sports: Record<number, string> = {
+    0: 'Running', 1: 'Cycling', 16: 'Baseball', 17: 'Basketball',
+    18: 'Rowing', 19: 'Fencing', 20: 'Field Hockey', 21: 'Football',
+    22: 'Golf', 24: 'Ice Hockey', 25: 'Lacrosse', 27: 'Rugby',
+    28: 'Sailing', 29: 'Skiing', 30: 'Soccer', 31: 'Softball',
+    32: 'Squash', 33: 'Swimming', 34: 'Tennis', 35: 'Track & Field',
+    36: 'Volleyball', 37: 'Water Polo', 38: 'Wrestling', 39: 'Boxing',
+    42: 'Dance', 43: 'Pilates', 44: 'Yoga', 45: 'Weightlifting',
+    47: 'Cross Country Skiing', 48: 'Functional Fitness', 49: 'Duathlon',
+    51: 'Gymnastics', 52: 'Hiking', 53: 'Horse Racing', 54: 'Kayak',
+    55: 'Martial Arts', 56: 'Mountain Biking', 57: 'Powerlifting',
+    59: 'Rock Climbing', 60: 'Paddleboarding', 63: 'Triathlon',
+    64: 'Walking', 65: 'Surfing', 66: 'Elliptical', 67: 'Stairmaster',
+    68: 'Meditation', 126: 'Strength Training', 127: 'Functional Fitness',
   };
+  return sports[sportId] ?? 'Workout';
 }
 
-function buildWeeklyLoad(workouts: WhoopWorkout[]): DayLoad[] {
-  const now = new Date();
-  const todayDow = (now.getDay() + 6) % 7; // 0=Mon … 6=Sun
-  const monday = new Date(now);
-  monday.setHours(0, 0, 0, 0);
-  monday.setDate(now.getDate() - todayDow);
-
-  const loads: DayLoad[] = Array.from({ length: 7 }, (_, i) => ({
-    day: i === todayDow ? 'Today' : DAY_LABELS[i],
-    load: 0,
-    intensity: 0,
-    isToday: i === todayDow,
-  }));
-
-  for (const w of workouts) {
-    if (!w.startTime) continue;
-    const d = new Date(w.startTime);
-    const diffDays = Math.floor((d.getTime() - monday.getTime()) / 86_400_000);
-    if (diffDays >= 0 && diffDays <= 6) {
-      loads[diffDays].load += w.durationMin;
-      loads[diffDays].intensity = Math.max(loads[diffDays].intensity, strainToRPE(w.strain));
-    }
-  }
-
-  return loads;
+function getSportIcon(sportId: number): string {
+  if ([0, 35].includes(sportId)) return '🏃';
+  if ([1, 56].includes(sportId)) return '🚴';
+  if ([45, 57, 126].includes(sportId)) return '🏋️';
+  if ([33].includes(sportId)) return '🏊';
+  if ([44, 43].includes(sportId)) return '🧘';
+  if ([48, 127].includes(sportId)) return '⚡';
+  if ([52, 64].includes(sportId)) return '🥾';
+  if ([30, 17, 21].includes(sportId)) return '⚽';
+  return '🏃';
 }
 
-function computeWeekStats(workouts: WhoopWorkout[]): WeekStats {
+function formatDuration(start: string, end: string): string {
+  const mins = Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60000);
+  return `${mins} min`;
+}
+
+function formatDate(start: string): string {
+  const date = new Date(start);
   const now = new Date();
-  const todayDow = (now.getDay() + 6) % 7;
-  const monday = new Date(now);
-  monday.setHours(0, 0, 0, 0);
-  monday.setDate(now.getDate() - todayDow);
+  const diffDays = Math.floor((now.getTime() - date.getTime()) / 86400000);
+  const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  if (diffDays === 0) return `Today · ${time}`;
+  if (diffDays === 1) return `Yesterday · ${time}`;
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  return `${days[date.getDay()]} · ${time}`;
+}
 
-  const thisWeek = workouts.filter((w) => w.startTime && new Date(w.startTime) >= monday);
+function kJToKcal(kj: number): string {
+  return `${Math.round(kj / 4.184)} kcal`;
+}
 
-  const activeDays = new Set(thisWeek.map((w) => new Date(w.startTime).toDateString())).size;
-  const totalMinutes = thisWeek.reduce((sum, w) => sum + w.durationMin, 0);
-  const calories = Math.round(thisWeek.reduce((sum, w) => sum + (w.kilojoules ?? 0) / 4.184, 0));
+function metersToKm(meters?: number): string | null {
+  if (!meters || meters < 100) return null;
+  return `${(meters / 1000).toFixed(1)} km`;
+}
 
-  return { activeDays, totalDays: 7, totalMinutes, calories };
+function rpeColor(strain: number): string {
+  if (strain >= 14) return colors.danger;
+  if (strain >= 10) return WARNING;
+  if (strain >= 5) return colors.accent2;
+  return colors.accent;
 }
 
 // ── Date Header ───────────────────────────────────────────
@@ -806,11 +808,10 @@ const chartStyles = StyleSheet.create({
 
 export default function TrainingScreen() {
   const insets = useSafeAreaInsets();
-  const [loading, setLoading] = useState(true);
+  const [whoopWorkouts, setWhoopWorkouts] = useState<WhoopWorkout[]>([]);
+  const [loadingWorkouts, setLoadingWorkouts] = useState(true);
   const [whoopConnected, setWhoopConnected] = useState(false);
-  const [activities, setActivities] = useState<Activity[]>(MOCK_ACTIVITIES);
-  const [weekStats, setWeekStats] = useState<WeekStats>(MOCK_WEEK_STATS);
-  const [weeklyLoad, setWeeklyLoad] = useState<DayLoad[]>(MOCK_WEEKLY_LOAD);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -824,13 +825,11 @@ export default function TrainingScreen() {
           const workouts = await getWhoopWorkouts();
           if (cancelled) return;
           if (workouts.length > 0) {
-            setActivities(workouts.map(whoopToActivity));
-            setWeekStats(computeWeekStats(workouts));
-            setWeeklyLoad(buildWeeklyLoad(workouts));
+            setWhoopWorkouts(workouts);
           }
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setLoadingWorkouts(false);
       }
     }
     load();
@@ -839,13 +838,26 @@ export default function TrainingScreen() {
     };
   }, []);
 
-  if (loading) {
-    return (
-      <View style={[styles.screen, styles.center]}>
-        <ActivityIndicator size="large" color={colors.accent} />
-      </View>
-    );
-  }
+  const activityToShow = whoopWorkouts.length > 0 ? whoopWorkouts.slice(0, 5) : null;
+
+  const last7Days = whoopWorkouts.filter((w) => {
+    const daysAgo = (Date.now() - new Date(w.start).getTime()) / 86400000;
+    return daysAgo <= 7;
+  });
+  const weekMinutes = last7Days.reduce((sum, w) => {
+    return sum + Math.round((new Date(w.end).getTime() - new Date(w.start).getTime()) / 60000);
+  }, 0);
+  const weekCalories = last7Days.reduce(
+    (sum, w) => sum + Math.round((w.score?.kilojoule ?? 0) / 4.184),
+    0,
+  );
+  const activeDays = new Set(last7Days.map((w) => new Date(w.start).toDateString())).size;
+  const weekPct = Math.min(Math.round((activeDays / 7) * 100), 100);
+
+  const weekStats: WeekStats =
+    whoopWorkouts.length > 0
+      ? { activeDays, totalDays: 7, totalMinutes: weekMinutes, calories: weekCalories }
+      : MOCK_WEEK_STATS;
 
   return (
     <ScrollView
@@ -882,14 +894,104 @@ export default function TrainingScreen() {
           <Text style={typography.label}>RECENT ACTIVITY</Text>
           <Text style={[typography.caption, { color: colors.accent }]}>Last 7 days</Text>
         </View>
-        {activities.map((a) => (
-          <ActivityRow key={a.id} activity={a} />
-        ))}
+        {loadingWorkouts ? (
+          <ActivityIndicator size={36} color={colors.accent} style={{ marginTop: 20 }} />
+        ) : activityToShow ? (
+          activityToShow.map((w) => {
+            const id = String(w.id);
+            const sport = getSportName(w.sport_id);
+            const icon = getSportIcon(w.sport_id);
+            const duration = formatDuration(w.start, w.end);
+            const date = formatDate(w.start);
+            const calories = w.score ? kJToKcal(w.score.kilojoule) : '— kcal';
+            const distance = metersToKm(w.score?.distance_meter);
+            const hr = w.score ? `${w.score.average_heart_rate} avg` : '—';
+            const strain = w.score ? w.score.strain.toFixed(1) : null;
+
+            return (
+              <TouchableOpacity
+                key={id}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setExpanded(expanded === id ? null : id);
+                }}
+                activeOpacity={0.85}
+              >
+                <View style={whoopStyles.card}>
+                  <View style={whoopStyles.row}>
+                    <Text style={whoopStyles.icon}>{icon}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={typography.bodyBold}>{sport}</Text>
+                      <Text style={[typography.caption, { marginTop: 2 }]}>{date}</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={[typography.bodyBold, { color: colors.accent }]}>
+                        {duration}
+                      </Text>
+                      <Text style={typography.caption}>{calories}</Text>
+                    </View>
+                  </View>
+                  <View style={whoopStyles.pillRow}>
+                    {distance && (
+                      <View style={whoopStyles.pill}>
+                        <Text style={whoopStyles.pillText}>📍 {distance}</Text>
+                      </View>
+                    )}
+                    <View style={whoopStyles.pill}>
+                      <Text style={whoopStyles.pillText}>♥ {hr}</Text>
+                    </View>
+                    {strain && (
+                      <View
+                        style={[
+                          whoopStyles.pill,
+                          {
+                            backgroundColor:
+                              rpeColor(Math.round(Number(strain))) + '22',
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            whoopStyles.pillText,
+                            { color: rpeColor(Math.round(Number(strain))) },
+                          ]}
+                        >
+                          Strain {strain}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  {expanded === id && (
+                    <View style={whoopStyles.details}>
+                      <View style={whoopStyles.detailGrid}>
+                        {[
+                          ['DURATION', duration],
+                          ['CALORIES', calories],
+                          ['DISTANCE', distance ?? '—'],
+                          ['AVG HR', hr],
+                          ['MAX HR', w.score ? `${w.score.max_heart_rate} bpm` : '—'],
+                          ['STRAIN', strain ?? '—'],
+                        ].map(([label, val]) => (
+                          <View key={label} style={whoopStyles.detailCell}>
+                            <Text style={whoopStyles.detailLabel}>{label}</Text>
+                            <Text style={whoopStyles.detailValue}>{val}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+                </View>
+              </TouchableOpacity>
+            );
+          })
+        ) : (
+          MOCK_ACTIVITIES.map((a) => <ActivityRow key={a.id} activity={a} />)
+        )}
       </View>
 
       {/* Weekly Progress */}
       <View style={styles.section}>
-        <WeeklyProgress weeklyLoad={weeklyLoad} />
+        <WeeklyProgress weeklyLoad={MOCK_WEEKLY_LOAD} />
       </View>
     </ScrollView>
   );
@@ -922,5 +1024,58 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 14,
+  },
+});
+
+const whoopStyles = StyleSheet.create({
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  icon: { fontSize: 24 },
+  pillRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 12,
+  },
+  pill: {
+    backgroundColor: 'rgba(240,240,248,0.04)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  pillText: {
+    fontFamily: 'DMSans_400Regular',
+    fontSize: 11,
+    color: colors.muted,
+  },
+  details: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+  },
+  detailGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 14,
+  },
+  detailCell: { width: '30%' as unknown as number, minWidth: 90 },
+  detailLabel: {
+    fontFamily: 'DMSans_400Regular',
+    fontSize: 11,
+    color: colors.muted,
+    marginBottom: 4,
+  },
+  detailValue: {
+    fontFamily: 'DMSans_700Bold',
+    fontSize: 14,
+    color: colors.text,
   },
 });
