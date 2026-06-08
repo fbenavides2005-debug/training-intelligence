@@ -13,7 +13,7 @@ import Svg, { Path, Circle } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
-import { whoopAuth, whoopStatus } from '../services/whoopService';
+import { whoopAuth, whoopStatus, getWhoopWorkouts } from '../services/whoopService';
 import { useAuth } from '../context/AuthContext';
 import { getUserProfile, updateSettings } from '../services/apiService';
 import type { TrainingMode, User } from '../types';
@@ -51,6 +51,7 @@ export default function ProfileScreen() {
   const [currentMode, setCurrentMode] = useState<TrainingMode>(
     (user?.profile.trainingMode ?? 'professional') as TrainingMode,
   );
+  const [stats, setStats] = useState(STATS_30D);
   const [whoopConnected, setWhoopConnected] = useState(false);
   const [connectingWhoop, setConnectingWhoop] = useState(false);
 
@@ -81,6 +82,46 @@ export default function ProfileScreen() {
       }
     })();
     checkWhoopStatus();
+    (async () => {
+      try {
+        const workouts = await getWhoopWorkouts();
+        if (workouts && workouts.length > 0) {
+          const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+          const recent = workouts.filter(
+            (w) => new Date(w.start).getTime() > thirtyDaysAgo,
+          );
+
+          const totalMinutes = recent.reduce((sum, w) => {
+            return sum + Math.round(
+              (new Date(w.end).getTime() - new Date(w.start).getTime()) / 60000,
+            );
+          }, 0);
+
+          const workoutDays = new Set(
+            recent.map((w) => new Date(w.start).toDateString()),
+          );
+          let streak = 0;
+          const today = new Date();
+          for (let i = 0; i < 30; i++) {
+            const day = new Date(today);
+            day.setDate(today.getDate() - i);
+            if (workoutDays.has(day.toDateString())) {
+              streak++;
+            } else if (i > 0) {
+              break;
+            }
+          }
+
+          setStats({
+            workouts: recent.length,
+            hours: Math.round((totalMinutes / 60) * 10) / 10,
+            streak,
+          });
+        }
+      } catch {
+        // silently keep mock stats
+      }
+    })();
   }, [checkWhoopStatus]);
 
   const handleWhoopConnect = async () => {
@@ -187,7 +228,7 @@ export default function ProfileScreen() {
               />
             </Svg>
             <Text style={[typography.h2, { color: colors.accent, marginTop: 8 }]}>
-              {STATS_30D.workouts}
+              {stats.workouts}
             </Text>
             <Text style={typography.caption}>Workouts</Text>
           </View>
@@ -197,7 +238,7 @@ export default function ProfileScreen() {
               <Path d="M12 8v4l2.5 2.5" stroke={colors.accent2} strokeWidth={2} strokeLinecap="round" />
             </Svg>
             <Text style={[typography.h2, { color: colors.accent2, marginTop: 8 }]}>
-              {STATS_30D.hours}
+              {stats.hours}
             </Text>
             <Text style={typography.caption}>Hours</Text>
           </View>
@@ -212,7 +253,7 @@ export default function ProfileScreen() {
               />
             </Svg>
             <Text style={[typography.h2, { color: colors.danger, marginTop: 8 }]}>
-              {STATS_30D.streak}
+              {stats.streak}
             </Text>
             <Text style={typography.caption}>Day Streak</Text>
           </View>
