@@ -205,8 +205,30 @@ router.get('/sleep', async (_req: Request, res: Response) => {
 
 // GET /api/whoop/workouts → recent workouts
 router.get('/workouts', async (_req: Request, res: Response) => {
-  const { status, body } = await whoopGet('/v2/activity/workout?limit=10');
-  res.status(status).json(body);
+  try {
+    const allRecords: unknown[] = [];
+    let nextToken: string | null = null;
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    let keepFetching = true;
+    while (keepFetching) {
+      const url = nextToken
+        ? `/v2/activity/workout?limit=25&nextToken=${encodeURIComponent(nextToken)}`
+        : '/v2/activity/workout?limit=25';
+      const { status, body } = await whoopGet(url);
+      if (status !== 200) { res.status(status).json(body); return; }
+      const data = body as { records: Array<{ start: string }>; next_token?: string };
+      const records = data.records ?? [];
+      const recentRecords = records.filter((r: { start: string }) => r.start >= thirtyDaysAgo);
+      allRecords.push(...recentRecords);
+        keepFetching = false;
+      } else {
+        nextToken = data.next_token;
+      }
+    }
+    res.json({ records: allRecords });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;
