@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { config } from '../config';
 import { WhoopToken } from '../models/WhoopToken';
+import { authenticate } from '../middleware/auth';
 
 const router = Router();
 
@@ -74,15 +75,20 @@ async function getValidAccessToken(): Promise<string | null> {
 }
 
 async function whoopGet(path: string): Promise<{ status: number; body: unknown }> {
-  const token = await getValidAccessToken();
-  if (!token) return { status: 401, body: { error: 'Not connected to WHOOP' } };
+  try {
+    const token = await getValidAccessToken();
+    if (!token) return { status: 401, body: { error: 'Not connected to WHOOP' } };
 
-  const res = await fetch(`${config.whoop.apiBaseUrl}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+    const res = await fetch(`${config.whoop.apiBaseUrl}${path}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-  const body = await res.json().catch(() => ({ error: 'Invalid JSON from WHOOP' }));
-  return { status: res.status, body };
+    const body = await res.json().catch(() => ({ error: 'Invalid JSON from WHOOP' }));
+    return { status: res.status, body };
+  } catch (err) {
+    console.error('WHOOP API error:', err);
+    return { status: 502, body: { error: 'WHOOP service unavailable' } };
+  }
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────
@@ -168,6 +174,8 @@ router.get('/callback', async (req: Request, res: Response) => {
 });
 
 // GET /api/whoop/status → check if a token is stored
+router.use(authenticate);
+
 router.get('/status', async (_req: Request, res: Response) => {
   try {
     const token = await getToken();
