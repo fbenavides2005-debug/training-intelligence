@@ -1,6 +1,6 @@
-import * as WebBrowser from 'expo-web-browser';
 
-const BACKEND = 'https://ubiquitous-spork-97p65j6qjxvp29rxg-4000.app.github.dev';
+
+const BACKEND = 'https://training-intelligence-a43n.onrender.com';
 
 // ── Auth ──────────────────────────────────────────────────
 
@@ -9,9 +9,10 @@ const BACKEND = 'https://ubiquitous-spork-97p65j6qjxvp29rxg-4000.app.github.dev'
  * opened (success/failure is determined by polling whoopStatus afterwards).
  */
 export async function whoopAuth(): Promise<void> {
-  await WebBrowser.openBrowserAsync(`${BACKEND}/api/whoop/auth`, {
-    presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
-  });
+  const authUrl = `${BACKEND}/api/whoop/auth`;
+  if (typeof window !== 'undefined') {
+    window.open(authUrl, '_blank', 'width=600,height=700');
+  }
 }
 
 // ── Status ────────────────────────────────────────────────

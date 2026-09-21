@@ -9,6 +9,7 @@ import MetricCard from '../components/MetricCard';
 import CoachCard from '../components/CoachCard';
 import WeeklyLoadChart from '../components/WeeklyLoadChart';
 import { getUserProfile, getReadiness } from '../services/apiService';
+import { getWhoopRecovery, getWhoopSleep } from '../services/whoopService';
 import type { RecoveryMetric, CoachRecommendation, WeeklyLoad } from '../types';
 
 // ── Mock Data (fallback) ─────────────────────────────────
@@ -54,21 +55,54 @@ export default function HomeScreen() {
   const [userName, setUserName] = useState('Athlete');
   const [readinessScore, setReadinessScore] = useState(MOCK_READINESS_SCORE);
   const [readinessLabel, setReadinessLabel] = useState(MOCK_READINESS_LABEL);
+  const [metrics, setMetrics] = useState<RecoveryMetric[]>(recoveryMetrics);
 
   useEffect(() => {
     let cancelled = false;
     async function loadData() {
-      const [profileResult, readinessResult] = await Promise.allSettled([
+      const [profileResult, readinessResult, whoopResult, sleepResult] = await Promise.allSettled([
         getUserProfile(),
         getReadiness(),
+        getWhoopRecovery(),
+        getWhoopSleep(),
       ]);
       if (cancelled) return;
       if (profileResult.status === 'fulfilled' && profileResult.value?.profile?.firstName) {
         setUserName(profileResult.value.profile.firstName);
       }
-      if (readinessResult.status === 'fulfilled' && readinessResult.value) {
+      if (readinessResult.status === 'fulfilled' && readinessResult.value?.score && readinessResult.value?.label) {
         setReadinessScore(readinessResult.value.score);
-        setReadinessLabel(readinessResult.value.label.toUpperCase());
+        setReadinessLabel((readinessResult.value.label ?? 'good').toUpperCase());
+      } else if (whoopResult.status === 'fulfilled' && whoopResult.value) {
+        setReadinessScore(whoopResult.value.recoveryScore);
+        setReadinessLabel(whoopResult.value.recoveryScore >= 67 ? 'PEAK' : whoopResult.value.recoveryScore >= 34 ? 'GOOD' : 'LOW');
+      }
+      // Update Recovery Snapshot cards with real WHOOP data
+      const whoop = whoopResult.status === 'fulfilled' ? whoopResult.value : null;
+      const sleep = sleepResult.status === 'fulfilled' ? sleepResult.value : null;
+      if (whoop || sleep) {
+        setMetrics([
+          {
+            label: 'Sleep',
+            value: sleep ? sleep.totalHours.toString() : recoveryMetrics[0].value,
+            unit: 'hrs',
+            trend: 'up',
+            color: colors.accent2,
+          },
+          {
+            label: 'HRV',
+            value: whoop ? whoop.hrvRmssd.toString() : recoveryMetrics[1].value,
+            unit: 'ms',
+            trend: 'up',
+            color: colors.accent,
+          },
+          {
+            label: 'Strain',
+            value: recoveryMetrics[2].value,
+            trend: 'neutral',
+            color: colors.danger,
+          },
+        ]);
       }
     }
     loadData();
@@ -103,7 +137,7 @@ export default function HomeScreen() {
       <View style={styles.section}>
         <Text style={[typography.label, styles.sectionLabel]}>RECOVERY SNAPSHOT</Text>
         <View style={styles.metricsRow}>
-          {recoveryMetrics.map((m) => (
+          {metrics.map((m) => (
             <MetricCard key={m.label} metric={m} />
           ))}
         </View>

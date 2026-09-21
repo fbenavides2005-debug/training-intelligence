@@ -63,7 +63,8 @@ export default function ProfileScreen() {
   const initials = `${firstName.charAt(0)}${lastName ? lastName.charAt(0) : ''}`.toUpperCase();
 
   const checkWhoopStatus = useCallback(async () => {
-    const connected = await whoopStatus();
+    const status = await whoopStatus();
+    const connected = status.connected;
     setWhoopConnected(connected);
   }, []);
 
@@ -147,18 +148,14 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleLogout = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Alert.alert('Logout', 'Are you sure you want to log out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Logout',
-        style: 'destructive',
-        onPress: async () => {
-          await logout();
-        },
-      },
-    ]);
+  const handleLogout = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    const confirmed = typeof window !== 'undefined'
+      ? window.confirm('Are you sure you want to log out?')
+      : true;
+    if (confirmed) {
+      await logout();
+    }
   };
 
   if (loadingProfile) {

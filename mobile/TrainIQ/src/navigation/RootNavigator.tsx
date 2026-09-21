@@ -1,20 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { View, ActivityIndicator, Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import { useAuth } from '../context/AuthContext';
 import AppNavigator from './AppNavigator';
 import OnboardingNavigator from './OnboardingNavigator';
 import AuthNavigator from './AuthNavigator';
+import { useAuth } from '../context/AuthContext';
+
+const ONBOARDED_KEY = 'trainiq_onboarded';
+
+async function getOnboarded(): Promise<boolean> {
+  if (Platform.OS === 'web') {
+    return localStorage.getItem(ONBOARDED_KEY) === 'true';
+  }
+  const val = await SecureStore.getItemAsync(ONBOARDED_KEY);
+  return val === 'true';
+}
+
+async function setOnboarded(): Promise<void> {
+  if (Platform.OS === 'web') {
+    localStorage.setItem(ONBOARDED_KEY, 'true');
+    return;
+  }
+  await SecureStore.setItemAsync(ONBOARDED_KEY, 'true');
+}
 
 export default function RootNavigator() {
   const { isAuthenticated, isLoading } = useAuth();
   const [hasOnboarded, setHasOnboarded] = useState<boolean | null>(null);
 
   useEffect(() => {
-    (async () => {
-      const value = await SecureStore.getItemAsync('trainiq_onboarded');
-      setHasOnboarded(value === 'true');
-    })();
+    getOnboarded().then(val => setHasOnboarded(val));
   }, []);
 
   if (isLoading || hasOnboarded === null) {
@@ -29,7 +44,7 @@ export default function RootNavigator() {
     return (
       <OnboardingNavigator
         onComplete={async () => {
-          await SecureStore.setItemAsync('trainiq_onboarded', 'true');
+          await setOnboarded();
           setHasOnboarded(true);
         }}
       />

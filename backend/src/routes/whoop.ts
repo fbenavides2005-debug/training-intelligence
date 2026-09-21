@@ -92,14 +92,25 @@ async function whoopGet(path: string): Promise<{ status: number; body: unknown }
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────
+// DELETE /api/whoop/disconnect
+router.delete("/disconnect", async (_req: Request, res: Response) => {
+  try {
+    await WhoopToken.deleteMany({});
+    res.json({ disconnected: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // GET /api/whoop/auth → redirect user to WHOOP OAuth consent page
 router.get('/auth', (_req: Request, res: Response) => {
+  const state = Math.random().toString(36).substring(2, 15);
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: config.whoop.clientId,
     redirect_uri: config.whoop.redirectUri,
     scope: config.whoop.scopes.join(' '),
+    state,
   });
   res.redirect(`${config.whoop.authUrl}?${params.toString()}`);
 });
@@ -187,20 +198,42 @@ router.get('/status', async (_req: Request, res: Response) => {
 
 // GET /api/whoop/recovery → latest recovery record
 router.get('/recovery', async (_req: Request, res: Response) => {
-  const { status, body } = await whoopGet('/v1/recovery?limit=1');
+  const { status, body } = await whoopGet('/v2/recovery?limit=1');
   res.status(status).json(body);
 });
 
 // GET /api/whoop/sleep → latest sleep record
 router.get('/sleep', async (_req: Request, res: Response) => {
-  const { status, body } = await whoopGet('/v1/sleep?limit=1');
+  const { status, body } = await whoopGet('/v2/activity/sleep?limit=1');
   res.status(status).json(body);
 });
 
 // GET /api/whoop/workouts → recent workouts
 router.get('/workouts', async (_req: Request, res: Response) => {
-  const { status, body } = await whoopGet('/v1/workout?limit=10');
-  res.status(status).json(body);
+  try {
+    const allRecords: unknown[] = [];
+    let nextToken: string | null = null;
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    let keepFetching = true;
+    while (keepFetching) {
+      const url = nextToken
+        ? `/v2/activity/workout?limit=25&nextToken=${encodeURIComponent(nextToken)}`
+        : '/v2/activity/workout?limit=25';
+      const { status, body } = await whoopGet(url);
+      if (status !== 200) { res.status(status).json(body); return; }
+      const data = body as { records: Array<{ start: string }>; next_token?: string };
+      const records = data.records ?? [];
+      const recentRecords = records.filter((r: { start: string }) => r.start >= thirtyDaysAgo);
+      allRecords.push(...recentRecords);
+        keepFetching = false;
+      } else {
+        nextToken = data.next_token;
+      }
+    }
+    res.json({ records: allRecords });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

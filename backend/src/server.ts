@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import { config } from './config';
-
 import authRoutes from './routes/auth';
 import userRoutes from './routes/user';
 import healthRoutes from './routes/health';
@@ -12,14 +11,28 @@ import whoopRoutes from './routes/whoop';
 const app = express();
 
 // ── Middleware ──────────────────────────────────────────
-
-app.use(cors());
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, etc)
+    if (!origin) return callback(null, true);
+    // Allow any github.dev codespace, localhost, and onrender.com
+    const allowed = [
+      /\.app\.github\.dev$/,
+      /^http:\/\/localhost/,
+      /\.onrender\.com$/,
+    ];
+    const isAllowed = allowed.some(pattern => pattern.test(origin));
+    callback(null, isAllowed ? origin : false);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.options('*', cors());
 app.use(express.json({ limit: '5mb' }));
 
 // ── Routes ─────────────────────────────────────────────
-
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
-
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/health', healthRoutes);
@@ -27,7 +40,6 @@ app.use('/api/coach', coachRoutes);
 app.use('/api/whoop', whoopRoutes);
 
 // ── Error handler ──────────────────────────────────────
-
 app.use(
   (
     err: Error,
@@ -41,24 +53,19 @@ app.use(
 );
 
 // ── Start ──────────────────────────────────────────────
-
 async function start() {
-  // Start listening immediately so WHOOP OAuth routes are reachable
+  if (config.mongodb.uri) {
+    try {
+      await mongoose.connect(config.mongodb.uri);
+      console.log('Connected to MongoDB');
+    } catch(e) {
+      console.warn('MongoDB unavailable, continuing without DB');
+    }
+  }
   app.listen(config.port, () => {
     console.log(`TrainIQ API running on port ${config.port}`);
     console.log(`Environment: ${config.env}`);
   });
-
-  // MongoDB connection is non-fatal — routes that need it will fail gracefully
-  try {
-    await mongoose.connect(config.mongodb.uri);
-    console.log('Connected to MongoDB');
-  } catch (err) {
-    console.warn(
-      'MongoDB unavailable — DB-backed routes will not work:',
-      err instanceof Error ? err.message : err,
-    );
-  }
 }
 
 start().catch((err) => {
