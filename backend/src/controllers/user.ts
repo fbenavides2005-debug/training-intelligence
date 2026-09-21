@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { User } from '../models/User';
 
@@ -18,63 +18,75 @@ const updateSettingsSchema = z.object({
   weekStartsOn: z.enum(['monday', 'sunday']).optional(),
 }).partial();
 
-export async function getProfile(req: Request, res: Response): Promise<void> {
-  const user = await User.findById(req.userId).select('-passwordHash');
-  if (!user) {
-    res.status(404).json({ error: 'User not found' });
-    return;
+export async function getProfile(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const user = await User.findById(req.userId).select('-passwordHash');
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+    res.json(user);
+  } catch (err) {
+    next(err);
   }
-  res.json(user);
 }
 
-export async function updateProfile(req: Request, res: Response): Promise<void> {
-  const parsed = updateProfileSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
-    return;
+export async function updateProfile(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const parsed = updateProfileSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+      return;
+    }
+
+    const update: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(parsed.data)) {
+      update[`profile.${key}`] = value;
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.userId,
+      { $set: update },
+      { new: true },
+    ).select('-passwordHash');
+
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    res.json(user);
+  } catch (err) {
+    next(err);
   }
-
-  const update: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(parsed.data)) {
-    update[`profile.${key}`] = value;
-  }
-
-  const user = await User.findByIdAndUpdate(
-    req.userId,
-    { $set: update },
-    { new: true },
-  ).select('-passwordHash');
-
-  if (!user) {
-    res.status(404).json({ error: 'User not found' });
-    return;
-  }
-
-  res.json(user);
 }
 
-export async function updateSettings(req: Request, res: Response): Promise<void> {
-  const parsed = updateSettingsSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
-    return;
+export async function updateSettings(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const parsed = updateSettingsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+      return;
+    }
+
+    const update: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(parsed.data)) {
+      update[`settings.${key}`] = value;
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.userId,
+      { $set: update },
+      { new: true },
+    ).select('-passwordHash');
+
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    res.json(user);
+  } catch (err) {
+    next(err);
   }
-
-  const update: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(parsed.data)) {
-    update[`settings.${key}`] = value;
-  }
-
-  const user = await User.findByIdAndUpdate(
-    req.userId,
-    { $set: update },
-    { new: true },
-  ).select('-passwordHash');
-
-  if (!user) {
-    res.status(404).json({ error: 'User not found' });
-    return;
-  }
-
-  res.json(user);
 }

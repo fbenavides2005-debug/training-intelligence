@@ -4,6 +4,7 @@ export interface IWhoopToken extends Document {
   access_token: string;
   refresh_token?: string;
   expires_at: number;
+  createdAt: Date;
   updatedAt: Date;
 }
 
